@@ -1,0 +1,4 @@
+# Need a list of available targets?
+# rustc --print target-list
+[toolchain]
+channel = "esp"
