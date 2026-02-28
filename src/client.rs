@@ -57,8 +57,8 @@ struct State {
 
 #[derive(Clone)]
 pub struct OmnibenchClient {
-    gap: ExEspBleGap,
-    gattc: ExEspGattc,
+    pub gap: ExEspBleGap,
+    pub gattc: ExEspGattc,
     state: Arc<Mutex<State>>,
     condvar: Arc<Condvar>,
 }
@@ -74,7 +74,7 @@ impl OmnibenchClient {
     }
 
     /// The main event handler for the GAP events
-    fn on_gap_event(&self, event: BleGapEvent) -> Result<(), EspError> {
+    pub fn on_gap_event(&self, event: BleGapEvent) -> Result<(), EspError> {
         info!("Got gap event: {event:?}");
 
         match event {
@@ -164,7 +164,11 @@ impl OmnibenchClient {
     }
 
     /// The main event handler for the GATTC events
-    fn on_gattc_event(&self, gattc_if: GattInterface, event: GattcEvent) -> Result<(), EspError> {
+    pub fn on_gattc_event(
+        &self,
+        gattc_if: GattInterface,
+        event: GattcEvent,
+    ) -> Result<(), EspError> {
         info!("Got gattc event: {event:?}");
 
         match event {
@@ -392,10 +396,10 @@ impl OmnibenchClient {
                         ) {
                             Ok(descrs_count) => {
                                 if descrs_count > 0 {
-                                    if let Some(descr) = descrs.first() {
-                                        if descr.uuid() == IND_DESCRIPTOR_UUID {
-                                            state.ind_descr_handle = Some(descr.handle());
-                                        }
+                                    if let Some(descr) = descrs.first()
+                                        && descr.uuid() == IND_DESCRIPTOR_UUID
+                                    {
+                                        state.ind_descr_handle = Some(descr.handle());
                                     }
                                 } else {
                                     error!("No ind descriptor found");
@@ -552,7 +556,7 @@ impl OmnibenchClient {
         Ok(())
     }
 
-    fn check_esp_status(&self, status: Result<(), EspError>) {
+    pub fn check_esp_status(&self, status: Result<(), EspError>) {
         if let Err(e) = status {
             warn!("Got status: {e:?}");
         }

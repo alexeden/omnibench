@@ -31,6 +31,3 @@ esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }
 esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
 esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal" }
 embedded-svc = { git = "https://github.com/esp-rs/embedded-svc" }
-
-# esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
-# esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal" }
