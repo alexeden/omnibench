@@ -1,5 +1,5 @@
 use crate::{
-    IND_CHARACTERISTIC_UUID, IND_DESCRIPTOR_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME,
+    APP_ID, IND_CHARACTERISTIC_UUID, IND_DESCRIPTOR_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME,
     SERVICE_UUID,
 };
 use esp_idf_svc::{
@@ -13,8 +13,8 @@ use esp_idf_svc::{
             gatt::{
                 GattInterface, GattStatus, Handle, Property,
                 client::{
-                    CharacteristicElement, ConnectionId, DbAttrType, DescriptorElement,
-                    EspGattc, GattAuthReq, GattCreateConnParams, GattWriteType, GattcEvent,
+                    CharacteristicElement, ConnectionId, DbAttrType, DescriptorElement, EspGattc,
+                    GattAuthReq, GattCreateConnParams, GattWriteType, GattcEvent,
                 },
             },
         },
@@ -221,31 +221,10 @@ impl OmnibenchClient {
                         self.gattc.enh_open(state.gattc_if.unwrap(), &conn_params)?;
                     }
                 }
-                // // If there are many devices found the logging tends to take
-                // too long and // the wdt kicks in
-                // std::thread::sleep(Duration::from_millis(10));
-            }
-            BleGapEvent::ScanResult(evt) => {
-                info!("BleGapEvent::ScanResult: {evt:?}");
             }
             BleGapEvent::ScanStopped(status) => {
                 info!("BleGapEvent::ScanStopped: {status:?}");
                 self.check_bt_status(status)?;
-            }
-            BleGapEvent::ConnectionParamsConfigured {
-                addr,
-                status,
-                min_int_ms,
-                max_int_ms,
-                latency_ms,
-                conn_int,
-                timeout_ms,
-            } => {
-                info!(
-                    "BleGapEvent::ConnectionParamsConfigured: connection params update addr \
-                     {addr}, status {status:?}, conn_int {conn_int}, latency {latency_ms}, \
-                     timeout {timeout_ms}, min_int {min_int_ms}, max_int {max_int_ms}"
-                );
             }
             BleGapEvent::PacketLengthConfigured {
                 status,
@@ -271,15 +250,20 @@ impl OmnibenchClient {
         gattc_if: GattInterface,
         event: GattcEvent,
     ) -> Result<(), EspError> {
-        match event {
-            GattcEvent::ClientRegistered { status, app_id } => {
-                self.check_gatt_status(status)?;
+        // Check if the event has an error status
+        if let Some(status) = status_from_gattc_event(&event)
+            && !matches!(status, GattStatus::Ok)
+        {
+            error!("ERROR GattcEvent: {event:?} got status: {status:?}");
+            self.state.lock().unwrap().status = ConnectionStatus::Error;
+            return Err(EspError::from_infallible::<ESP_FAIL>());
+        }
 
-                if crate::APP_ID == app_id {
-                    info!("GattcEvent::ClientRegistered: will connect...");
-                    self.state.lock().unwrap().gattc_if = Some(gattc_if);
-                    self.connect()?;
-                }
+        match event {
+            GattcEvent::ClientRegistered { app_id, .. } if APP_ID == app_id => {
+                info!("GattcEvent::ClientRegistered: will connect...");
+                self.state.lock().unwrap().gattc_if = Some(gattc_if);
+                self.connect()?;
             }
             GattcEvent::Connected { conn_id, addr, .. } => {
                 info!("GattcEvent::Connected: connected to {addr}");
@@ -288,14 +272,7 @@ impl OmnibenchClient {
                 state.remote_addr = Some(addr);
                 self.gattc.mtu_req(gattc_if, conn_id)?;
             }
-            GattcEvent::Open {
-                status, addr, mtu, ..
-            } => {
-                self.check_gatt_status(status)?;
-                info!("GattcEvent::Open: open successfully with {addr}, MTU {mtu}");
-            }
-            GattcEvent::DiscoveryCompleted { status, conn_id } => {
-                self.check_gatt_status(status)?;
+            GattcEvent::DiscoveryCompleted { conn_id, .. } => {
                 info!("GattcEvent::DiscoveryCompleted: conn_id {conn_id}");
                 self.gattc
                     .search_service(gattc_if, conn_id, Some(&SERVICE_UUID))?;
@@ -311,16 +288,14 @@ impl OmnibenchClient {
                     Some((start_handle, end_handle));
             }
             GattcEvent::SearchComplete {
-                status,
                 conn_id,
                 searched_service_source,
+                ..
             } => {
-                self.check_gatt_status(status)?;
                 info!(
                     "GattcEvent::SearchComplete: searched_service_source \
                      {searched_service_source:?}"
                 );
-
                 let mut state = self.state.lock().unwrap();
 
                 if let Some((start_handle, end_handle)) = state.service_start_end_handle {
@@ -408,8 +383,7 @@ impl OmnibenchClient {
                     };
                 };
             }
-            GattcEvent::RegisterNotify { status, handle } => {
-                self.check_gatt_status(status)?;
+            GattcEvent::RegisterNotify { handle, .. } => {
                 info!("GattcEvent::RegisterNotify: notification register successfully");
                 let mut state = self.state.lock().unwrap();
                 if let Some(conn_id) = state.conn_id {
@@ -451,11 +425,6 @@ impl OmnibenchClient {
                     }
                 }
             }
-            GattcEvent::WriteDescriptor { status, .. }
-            | GattcEvent::WriteCharacteristic { status, .. } => {
-                self.check_gatt_status(status)?;
-                info!("GattcEvent::Write*: characteristic write successful");
-            }
             GattcEvent::Disconnected { addr, reason, .. } => {
                 let mut state = self.state.lock().unwrap();
                 state.connected = false;
@@ -484,14 +453,29 @@ impl OmnibenchClient {
             Ok(())
         }
     }
+}
 
-    fn check_gatt_status(&self, status: GattStatus) -> Result<(), EspError> {
-        if !matches!(status, GattStatus::Ok) {
-            warn!("Got status: {status:?}");
-            self.state.lock().unwrap().status = ConnectionStatus::Error;
-            Err(EspError::from_infallible::<ESP_FAIL>())
-        } else {
-            Ok(())
-        }
+fn status_from_gattc_event(event: &GattcEvent) -> Option<GattStatus> {
+    match event {
+        GattcEvent::AddressList { status, .. }
+        | GattcEvent::ClientRegistered { status, .. }
+        | GattcEvent::Close { status, .. }
+        | GattcEvent::DiscoveryCompleted { status, .. }
+        | GattcEvent::ExecWrite { status, .. }
+        | GattcEvent::Mtu { status, .. }
+        | GattcEvent::Open { status, .. }
+        | GattcEvent::PrepareWrite { status, .. }
+        | GattcEvent::QueueFull { status, .. }
+        | GattcEvent::ReadCharacteristic { status, .. }
+        | GattcEvent::ReadDescriptor { status, .. }
+        | GattcEvent::ReadMultipleChar { status, .. }
+        | GattcEvent::ReadMultipleVarChar { status, .. }
+        | GattcEvent::RegisterNotify { status, .. }
+        | GattcEvent::SearchComplete { status, .. }
+        | GattcEvent::SetAssociation { status, .. }
+        | GattcEvent::UnregisterNotify { status, .. }
+        | GattcEvent::WriteCharacteristic { status, .. }
+        | GattcEvent::WriteDescriptor { status, .. } => Some(*status),
+        _ => None,
     }
 }
