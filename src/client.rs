@@ -24,6 +24,21 @@ use esp_idf_svc::{
 use log::*;
 use std::sync::{Arc, Condvar, Mutex};
 
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum ConnectionStatus {
+    /// Actively scanning for the server (blue)
+    #[default]
+    Scanning,
+    /// Write characteristic discovered; ready to communicate (white)
+    Connected,
+    /// Was connected, now disconnected (red)
+    Disconnected,
+    /// Scan completed without finding the server (red)
+    ScanFailed,
+    /// An unexpected BT/GATT error occurred (orange)
+    Error,
+}
+
 type ExBtDriver = BtDriver<'static, Ble>;
 type ExEspBleGap = Arc<EspBleGap<'static, Ble, Arc<ExBtDriver>>>;
 type ExEspGattc = Arc<EspGattc<'static, Ble, Arc<ExBtDriver>>>;
@@ -38,6 +53,7 @@ struct State {
     remote_addr: Option<BdAddr>,
     service_start_end_handle: Option<(Handle, Handle)>,
     write_char_handle: Option<Handle>,
+    status: ConnectionStatus,
 }
 
 #[derive(Clone)]
@@ -56,6 +72,11 @@ impl OmnibenchClient {
             state: Arc::new(Mutex::new(Default::default())),
             condvar: Arc::new(Condvar::new()),
         }
+    }
+
+    /// Returns the current connection status, suitable for driving UI feedback.
+    pub fn status(&self) -> ConnectionStatus {
+        self.state.lock().unwrap().status
     }
 
     /// Connect to the bt_gatt_server.
@@ -171,9 +192,14 @@ impl OmnibenchClient {
             BleGapEvent::ScanStarted(status) => {
                 info!("BleGapEvent::ScanStarted: {status:?}");
                 self.check_bt_status(status)?;
+                self.state.lock().unwrap().status = ConnectionStatus::Scanning;
             }
             BleGapEvent::ScanResult(GapSearchEvent::InquiryComplete(_)) => {
-                info!("Scan completed, no server {SERVER_NAME} found");
+                let mut state = self.state.lock().unwrap();
+                if !state.connected {
+                    info!("Scan completed, no server {SERVER_NAME} found");
+                    state.status = ConnectionStatus::ScanFailed;
+                }
             }
             BleGapEvent::ScanResult(GapSearchEvent::InquiryResult(GapSearchResult {
                 bda,
@@ -403,7 +429,7 @@ impl OmnibenchClient {
                             if let Some(write_char_elem) = chars.first() {
                                 if write_char_elem.properties().contains(Property::Write) {
                                     state.write_char_handle = Some(write_char_elem.handle());
-                                    // Let main loop send write
+                                    state.status = ConnectionStatus::Connected;
                                     self.condvar.notify_all();
                                 } else {
                                     error!("Write characteristic does not have property Write");
@@ -488,6 +514,7 @@ impl OmnibenchClient {
                 state.ind_char_handle = None;
                 state.ind_descr_handle = None;
                 state.write_char_handle = None;
+                state.status = ConnectionStatus::Disconnected;
                 info!("GattcEvent::Disconnected: remote {addr}, reason {reason:?}");
             }
             evt => {
@@ -500,6 +527,7 @@ impl OmnibenchClient {
     fn check_bt_status(&self, status: BtStatus) -> Result<(), EspError> {
         if !matches!(status, BtStatus::Success) {
             warn!("!!! ERROR STATUS !!!: {status:?}");
+            self.state.lock().unwrap().status = ConnectionStatus::Error;
             Err(EspError::from_infallible::<ESP_FAIL>())
         } else {
             Ok(())
@@ -509,6 +537,7 @@ impl OmnibenchClient {
     fn check_gatt_status(&self, status: GattStatus) -> Result<(), EspError> {
         if !matches!(status, GattStatus::Ok) {
             warn!("Got status: {status:?}");
+            self.state.lock().unwrap().status = ConnectionStatus::Error;
             Err(EspError::from_infallible::<ESP_FAIL>())
         } else {
             Ok(())

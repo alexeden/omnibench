@@ -7,7 +7,7 @@ use esp_idf_svc::{
     bt::{
         BtDriver,
         ble::{
-            gap::{BleGapEvent, EspBleGap, GapSearchEvent},
+            gap::EspBleGap,
             gatt::{self, client::EspGattc},
         },
     },
@@ -21,23 +21,35 @@ use esp_idf_svc::{
     nvs::EspDefaultNvsPartition,
 };
 use log::*;
-use omnibench::{APP_ID, client::OmnibenchClient};
+use omnibench::{
+    APP_ID,
+    client::{ConnectionStatus, OmnibenchClient},
+};
 use std::{sync::Arc, time::Duration};
 
 const RED: NeoKey1x4Color = NeoKey1x4Color { r: 255, g: 0, b: 0 };
 const BLUE: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 255 };
-const _GREEN: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 255, b: 0 };
+const WHITE: NeoKey1x4Color = NeoKey1x4Color {
+    r: 255,
+    g: 255,
+    b: 255,
+};
+const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
+    r: 255,
+    g: 128,
+    b: 0,
+};
 
 pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let peripherals = Peripherals::take()?;
+
     // I2C
     let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
     i2c_power.set_low()?;
 
-    // I2C
     info!("Initializing I2C and Seesaw");
     let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
@@ -52,14 +64,13 @@ pub fn main() -> anyhow::Result<()> {
 
     info!("Seesaw initialized");
 
+    // Start blue — scanning is about to begin
+    // set_leds(&mut neokeys, BLUE)?;
     neokeys
         .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
-        .and_then(|_| neokeys.sync_neopixel())?;
+        .and_then(|_| neokeys.sync_neopixel())
+        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
 
-    // if keys & 1 == 0 { GREEN } else { RED },
-    // if (keys >> 1) & 1 == 0 { GREEN } else { RED },
-    // if (keys >> 2) & 1 == 0 { GREEN } else { RED },
-    // if (keys >> 3) & 1 == 0 { GREEN } else { RED },
     let nvs = EspDefaultNvsPartition::take()?;
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
     let client = OmnibenchClient::new(
@@ -69,58 +80,77 @@ pub fn main() -> anyhow::Result<()> {
     info!("BLE Gap and Gattc initialized");
 
     let gap_client = client.clone();
-
     client.gap.subscribe(move |event| {
-        if let BleGapEvent::ScanResult(GapSearchEvent::InquiryComplete(_)) = event {
-            info!("Scan completed, no server found");
-            neokeys
-                .set_neopixel_colors(&[RED, RED, RED, RED])
-                .and_then(|_| neokeys.sync_neopixel())
-                .unwrap();
-        }
         if let Err(e) = gap_client.on_gap_event(event) {
-            warn!("Got gap event error: {e:?}");
+            warn!("Gap event error: {e:?}");
         }
     })?;
 
     let gattc_client = client.clone();
-
     client.gattc.subscribe(move |(gatt_if, event)| {
-        // info!("Got gattc event: {event:?}");
         if let Err(e) = gattc_client.on_gattc_event(gatt_if, event) {
-            warn!("Got gattc event error: {e:?}");
+            warn!("Gattc event error: {e:?}");
         }
     })?;
 
-    info!("BLE Gap and Gattc subscriptions initialized");
+    info!("Subscriptions initialized; registering app and starting scan");
     client.gattc.register_app(APP_ID)?;
     gatt::set_local_mtu(500)?;
-    info!("Gattc BTP app registered; will wait for write characteristic");
-    client.wait_for_write_char_handle();
-    let mut i = 0_u16;
-    let mut indicate = true;
 
-    info!("Client initialized, looping");
+    // Main loop: update LEDs from connection status, handle button presses for
+    // rescan.
+    let mut last_status = None;
+    // Tracks whether a button was already pressed this gesture, to avoid
+    // re-triggering.
+    let mut rescan_pending = false;
 
     loop {
-        // Subscribe/unsubscribe to indications
-        if i.is_multiple_of(10) {
-            client.request_indicate(indicate)?;
-            indicate = !indicate;
+        let status = client.status();
+
+        // Update LEDs only when status changes.
+        if Some(status) != last_status {
+            let color = match status {
+                ConnectionStatus::Scanning => BLUE,
+                ConnectionStatus::Connected => WHITE,
+                ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected => RED,
+                ConnectionStatus::Error => ORANGE,
+            };
+            info!("Connection status: {status:?}");
+            // set_leds(&mut neokeys, color)?;
+            neokeys
+                .set_neopixel_colors(&[color, color, color, color])
+                .and_then(|_| neokeys.sync_neopixel())
+                .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
+            last_status = Some(status);
         }
 
-        client.write_characterisitic(&i.to_le_bytes())?;
-
-        info!("Wrote characteristic: {i}");
-
-        i = i.wrapping_add(1);
-
-        std::thread::sleep(Duration::from_secs(5));
-
-        if i.is_multiple_of(30) {
-            client.disconnect()?;
-            std::thread::sleep(Duration::from_secs(5));
-            client.connect()?;
+        // When not connected, any button press restarts the scan.
+        if matches!(
+            status,
+            ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected | ConnectionStatus::Error
+        ) {
+            // keys() returns a bitmask; 0 = pressed (active low), 4 bits for 4 keys.
+            if let Ok(keys) = neokeys.keys() {
+                let any_pressed = keys & 0xF != 0xF;
+                if any_pressed && !rescan_pending {
+                    rescan_pending = true;
+                    info!("Button pressed — restarting scan");
+                    client.connect()?;
+                } else if !any_pressed {
+                    rescan_pending = false;
+                }
+            }
+        } else {
+            rescan_pending = false;
         }
+
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+// fn set_leds(neokeys: &mut NeoKey1x4<impl SeesawDevice>, color:
+// NeoKey1x4Color) -> anyhow::Result<()> {     neokeys
+//         .set_neopixel_colors(&[color, color, color, color])
+//         .and_then(|_| neokeys.sync_neopixel())
+//         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
+// }
