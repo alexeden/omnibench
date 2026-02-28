@@ -15,7 +15,6 @@ use esp_idf_svc::{
                 client::{
                     CharacteristicElement, ConnectionId, DbAttrType, DbElement, DescriptorElement,
                     EspGattc, GattAuthReq, GattCreateConnParams, GattWriteType, GattcEvent,
-                    ServiceSource,
                 },
             },
         },
@@ -256,41 +255,37 @@ impl OmnibenchClient {
         gattc_if: GattInterface,
         event: GattcEvent,
     ) -> Result<(), EspError> {
-        info!("Got gattc event: {event:?}");
-
         match event {
             GattcEvent::ClientRegistered { status, app_id } => {
                 self.check_gatt_status(status)?;
+
                 if crate::APP_ID == app_id {
+                    info!("GattcEvent::ClientRegistered: will connect...");
                     self.state.lock().unwrap().gattc_if = Some(gattc_if);
                     self.connect()?;
                 }
             }
             GattcEvent::Connected { conn_id, addr, .. } => {
+                info!("GattcEvent::Connected: connected to {addr}");
                 let mut state = self.state.lock().unwrap();
-
                 state.conn_id = Some(conn_id);
                 state.remote_addr = Some(addr);
-
                 self.gattc.mtu_req(gattc_if, conn_id)?;
             }
             GattcEvent::Open {
                 status, addr, mtu, ..
             } => {
                 self.check_gatt_status(status)?;
-
-                info!("Open successfully with {addr}, MTU {mtu}");
+                info!("GattcEvent::Open: open successfully with {addr}, MTU {mtu}");
             }
             GattcEvent::DiscoveryCompleted { status, conn_id } => {
                 self.check_gatt_status(status)?;
-
-                info!("Service discover complete, conn_id {conn_id}");
-
+                info!("GattcEvent::DiscoveryCompleted: conn_id {conn_id}");
                 self.gattc
                     .search_service(gattc_if, conn_id, Some(&SERVICE_UUID))?;
             }
             GattcEvent::Mtu { status, mtu, .. } => {
-                info!("MTU exchange, status {status:?}, MTU {mtu}");
+                info!("GattcEvent::Mtu: status {status:?}, MTU {mtu}");
             }
             GattcEvent::SearchResult {
                 conn_id,
@@ -298,19 +293,10 @@ impl OmnibenchClient {
                 end_handle,
                 srvc_id,
                 is_primary,
-            } => {
-                info!(
-                    "Service search result, conn_id {conn_id}, is primary service {is_primary}, \
-                     start handle {start_handle}, end handle {end_handle}, current handle value {}",
-                    srvc_id.inst_id
-                );
-
-                if srvc_id.uuid == SERVICE_UUID {
-                    info!("Service found, uuid {:?}", srvc_id.uuid);
-
-                    self.state.lock().unwrap().service_start_end_handle =
-                        Some((start_handle, end_handle));
-                }
+            } if srvc_id.uuid == SERVICE_UUID => {
+                info!("GattcEvent::SearchResult: service found",);
+                self.state.lock().unwrap().service_start_end_handle =
+                    Some((start_handle, end_handle));
             }
             GattcEvent::SearchComplete {
                 status,
@@ -318,19 +304,10 @@ impl OmnibenchClient {
                 searched_service_source,
             } => {
                 self.check_gatt_status(status)?;
-
-                match searched_service_source {
-                    ServiceSource::RemoteDevice => {
-                        info!("Get service information from remote device")
-                    }
-                    ServiceSource::Nvs => {
-                        info!("Get service information from flash")
-                    }
-                    _ => {
-                        info!("Unknown service source")
-                    }
-                };
-                info!("Service search complete");
+                info!(
+                    "GattcEvent::SearchComplete: searched_service_source \
+                     {searched_service_source:?}"
+                );
 
                 let mut state = self.state.lock().unwrap();
 
@@ -457,11 +434,8 @@ impl OmnibenchClient {
             }
             GattcEvent::RegisterNotify { status, handle } => {
                 self.check_gatt_status(status)?;
-
-                info!("Notification register successfully");
-
+                info!("GattcEvent::RegisterNotify: notification register successfully");
                 let mut state = self.state.lock().unwrap();
-
                 if let Some(conn_id) = state.conn_id {
                     let count = self
                         .gattc
@@ -508,20 +482,21 @@ impl OmnibenchClient {
                 is_notify,
                 ..
             } => {
-                info!("Got is_notify {is_notify}, addr {addr}, handle {handle}, value {value:?}");
+                info!(
+                    "GattcEvent::Notify: is_notify {is_notify}, addr {addr}, handle {handle}, \
+                     value {value:?}"
+                );
             }
             GattcEvent::WriteDescriptor { status, .. } => {
                 self.check_gatt_status(status)?;
-
-                info!("Descriptor write successful");
+                info!("GattcEvent::WriteDescriptor: descriptor write successful");
             }
             GattcEvent::ServiceChanged { addr } => {
-                info!("Service change from {addr}");
+                info!("GattcEvent::ServiceChanged: service change from {addr}");
             }
             GattcEvent::WriteCharacteristic { status, .. } => {
                 self.check_gatt_status(status)?;
-
-                info!("Characteristic write successful");
+                info!("GattcEvent::WriteCharacteristic: characteristic write successful");
             }
             GattcEvent::Disconnected { addr, reason, .. } => {
                 let mut state = self.state.lock().unwrap();
@@ -532,10 +507,10 @@ impl OmnibenchClient {
                 state.ind_char_handle = None;
                 state.ind_descr_handle = None;
                 state.write_char_handle = None;
-                info!("Disconnected, remote {addr}, reason {reason:?}");
+                info!("GattcEvent::Disconnected: remote {addr}, reason {reason:?}");
             }
             evt => {
-                info!("GattcEvent: {evt:?}");
+                info!("______ GattcEvent: {evt:?}");
             }
         }
         Ok(())

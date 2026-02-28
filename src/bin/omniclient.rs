@@ -26,7 +26,7 @@ use std::{sync::Arc, time::Duration};
 
 const RED: NeoKey1x4Color = NeoKey1x4Color { r: 255, g: 0, b: 0 };
 const BLUE: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 255 };
-const GREEN: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 255, b: 0 };
+const _GREEN: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 255, b: 0 };
 
 pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
@@ -86,7 +86,7 @@ pub fn main() -> anyhow::Result<()> {
     let gattc_client = client.clone();
 
     client.gattc.subscribe(move |(gatt_if, event)| {
-        info!("Got gattc event: {event:?}");
+        // info!("Got gattc event: {event:?}");
         if let Err(e) = gattc_client.on_gattc_event(gatt_if, event) {
             warn!("Got gattc event error: {e:?}");
         }
