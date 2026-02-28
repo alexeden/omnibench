@@ -284,9 +284,6 @@ impl OmnibenchClient {
                 self.gattc
                     .search_service(gattc_if, conn_id, Some(&SERVICE_UUID))?;
             }
-            GattcEvent::Mtu { status, mtu, .. } => {
-                info!("GattcEvent::Mtu: status {status:?}, MTU {mtu}");
-            }
             GattcEvent::SearchResult {
                 conn_id,
                 start_handle,
@@ -354,82 +351,72 @@ impl OmnibenchClient {
 
                     info!("Found {char_count} characteristics");
 
-                    if char_count > 0 {
-                        // Get the indicator characteristic handle and register for notification
-                        let mut chars = [CharacteristicElement::new(); 1];
-
-                        match self.gattc.get_characteristic_by_uuid(
-                            gattc_if,
-                            conn_id,
-                            start_handle,
-                            end_handle,
-                            &IND_CHARACTERISTIC_UUID,
-                            &mut chars,
-                        ) {
-                            Ok(char_count) => {
-                                if char_count > 0 {
-                                    if let Some(ind_char_elem) = chars.first() {
-                                        if ind_char_elem.properties().contains(Property::Indicate) {
-                                            if let Some(remote_addr) = state.remote_addr {
-                                                state.ind_char_handle =
-                                                    Some(ind_char_elem.handle());
-                                                self.gattc.register_for_notify(
-                                                    gattc_if,
-                                                    &remote_addr,
-                                                    ind_char_elem.handle(),
-                                                )?;
-                                            }
-                                        } else {
-                                            error!(
-                                                "Ind characteristic does not have property \
-                                                 Indicate"
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    error!("No ind characteristic found");
-                                }
-                            }
-                            Err(status) => {
-                                error!("Get ind characteristic error {status:?}");
-                            }
-                        };
-
-                        // Get the write characteristic handle and start sending data to the server
-                        match self.gattc.get_characteristic_by_uuid(
-                            gattc_if,
-                            conn_id,
-                            start_handle,
-                            end_handle,
-                            &RECV_CHARACTERISTIC_UUID,
-                            &mut chars,
-                        ) {
-                            Ok(char_count) => {
-                                if char_count > 0 {
-                                    if let Some(write_char_elem) = chars.first() {
-                                        if write_char_elem.properties().contains(Property::Write) {
-                                            state.write_char_handle =
-                                                Some(write_char_elem.handle());
-
-                                            // Let main loop send write
-                                            self.condvar.notify_all();
-                                        } else {
-                                            error!(
-                                                "Write characteristic does not have property Write"
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    error!("No write characteristic found");
-                                }
-                            }
-                            Err(status) => {
-                                error!("Get write characteristic error {status:?}");
-                            }
-                        };
-                    } else {
+                    if char_count == 0 {
                         error!("No characteristics found");
+                        return Ok(());
                     }
+                    // Get the indicator characteristic handle and register for notification
+                    let mut chars = [CharacteristicElement::new(); 1];
+
+                    match self.gattc.get_characteristic_by_uuid(
+                        gattc_if,
+                        conn_id,
+                        start_handle,
+                        end_handle,
+                        &IND_CHARACTERISTIC_UUID,
+                        &mut chars,
+                    ) {
+                        Ok(char_count) if char_count > 0 => {
+                            if let Some(ind_char_elem) = chars.first() {
+                                if ind_char_elem.properties().contains(Property::Indicate) {
+                                    if let Some(remote_addr) = state.remote_addr {
+                                        state.ind_char_handle = Some(ind_char_elem.handle());
+                                        self.gattc.register_for_notify(
+                                            gattc_if,
+                                            &remote_addr,
+                                            ind_char_elem.handle(),
+                                        )?;
+                                    }
+                                } else {
+                                    error!("Ind characteristic does not have property Indicate");
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            error!("No ind characteristic found");
+                        }
+                        Err(status) => {
+                            error!("Get ind characteristic error {status:?}");
+                        }
+                    };
+
+                    // Get the write characteristic handle and start sending data to the server
+                    match self.gattc.get_characteristic_by_uuid(
+                        gattc_if,
+                        conn_id,
+                        start_handle,
+                        end_handle,
+                        &RECV_CHARACTERISTIC_UUID,
+                        &mut chars,
+                    ) {
+                        Ok(char_count) if char_count > 0 => {
+                            if let Some(write_char_elem) = chars.first() {
+                                if write_char_elem.properties().contains(Property::Write) {
+                                    state.write_char_handle = Some(write_char_elem.handle());
+                                    // Let main loop send write
+                                    self.condvar.notify_all();
+                                } else {
+                                    error!("Write characteristic does not have property Write");
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            error!("No write characteristic found");
+                        }
+                        Err(status) => {
+                            error!("Get write characteristic error {status:?}");
+                        }
+                    };
                 };
             }
             GattcEvent::RegisterNotify { status, handle } => {
@@ -475,28 +462,22 @@ impl OmnibenchClient {
                     }
                 }
             }
-            GattcEvent::Notify {
-                addr,
-                handle,
-                value,
-                is_notify,
-                ..
-            } => {
-                info!(
-                    "GattcEvent::Notify: is_notify {is_notify}, addr {addr}, handle {handle}, \
-                     value {value:?}"
-                );
-            }
-            GattcEvent::WriteDescriptor { status, .. } => {
+            // GattcEvent::Notify {
+            //     addr,
+            //     handle,
+            //     value,
+            //     is_notify,
+            //     ..
+            // } => {
+            //     info!(
+            //         "GattcEvent::Notify: is_notify {is_notify}, addr {addr}, handle {handle}, \
+            //          value {value:?}"
+            //     );
+            // }
+            GattcEvent::WriteDescriptor { status, .. }
+            | GattcEvent::WriteCharacteristic { status, .. } => {
                 self.check_gatt_status(status)?;
-                info!("GattcEvent::WriteDescriptor: descriptor write successful");
-            }
-            GattcEvent::ServiceChanged { addr } => {
-                info!("GattcEvent::ServiceChanged: service change from {addr}");
-            }
-            GattcEvent::WriteCharacteristic { status, .. } => {
-                self.check_gatt_status(status)?;
-                info!("GattcEvent::WriteCharacteristic: characteristic write successful");
+                info!("GattcEvent::Write*: characteristic write successful");
             }
             GattcEvent::Disconnected { addr, reason, .. } => {
                 let mut state = self.state.lock().unwrap();
