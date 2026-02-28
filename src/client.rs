@@ -23,10 +23,7 @@ use esp_idf_svc::{
     sys::{ESP_FAIL, EspError},
 };
 use log::*;
-use std::{
-    sync::{Arc, Condvar, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Condvar, Mutex};
 
 type ExBtDriver = BtDriver<'static, Ble>;
 type ExEspBleGap = Arc<EspBleGap<'static, Ble, Arc<ExBtDriver>>>;
@@ -35,7 +32,7 @@ type ExEspGattc = Arc<EspGattc<'static, Ble, Arc<ExBtDriver>>>;
 #[derive(Default)]
 struct State {
     conn_id: Option<ConnectionId>,
-    connect: bool,
+    connected: bool,
     gattc_if: Option<GattInterface>,
     ind_char_handle: Option<Handle>,
     ind_descr_handle: Option<Handle>,
@@ -69,15 +66,13 @@ impl OmnibenchClient {
     /// scanning. Scanning must happen before a connect can be made in
     /// `BleGapEvent::ScanResult`.
     pub fn connect(&self) -> Result<(), EspError> {
-        if !self.state.lock().unwrap().connect {
+        if !self.state.lock().unwrap().connected {
             let scan_params = ScanParams {
                 scan_interval: 0x50,
                 ..Default::default()
             };
-
             self.gap.set_scan_params(&scan_params)?;
         }
-
         Ok(())
     }
 
@@ -197,30 +192,23 @@ impl OmnibenchClient {
                     .transpose()
                     .ok()
                     .flatten();
-
-                // if let Some(n) = name {
-                //     info!("BleGapEvent::ScanResult(GapSearchEvent::InquiryResult): {n:?}");
-                // }
-
+                // info!("BleGapEvent::ScanResult(GapSearchEvent::InquiryResult): {n:?}");
                 if let Some(name) = name.filter(|n| *n == SERVER_NAME) {
                     info!("!!! Device found: {name:?}");
 
                     let mut state = self.state.lock().unwrap();
 
-                    if !state.connect {
-                        state.connect = true;
+                    if !state.connected {
+                        state.connected = true;
                         info!("!!! Connect to remote {bda}");
                         self.gap.stop_scanning()?;
-
                         let conn_params = GattCreateConnParams::new(bda, ble_addr_type);
-
                         self.gattc.enh_open(state.gattc_if.unwrap(), &conn_params)?;
                     }
                 }
-
-                // If there are many devices found the logging tends to take too long and
-                // the wdt kicks in
-                std::thread::sleep(Duration::from_millis(10));
+                // // If there are many devices found the logging tends to take
+                // too long and // the wdt kicks in
+                // std::thread::sleep(Duration::from_millis(10));
             }
             BleGapEvent::ScanResult(evt) => {
                 info!("BleGapEvent::ScanResult: {evt:?}");
@@ -239,9 +227,9 @@ impl OmnibenchClient {
                 timeout_ms,
             } => {
                 info!(
-                    "Connection params update addr {addr}, status {status:?}, conn_int \
-                     {conn_int}, latency {latency_ms}, timeout {timeout_ms}, min_int \
-                     {min_int_ms}, max_int {max_int_ms}"
+                    "BleGapEvent::ConnectionParamsConfigured: connection params update addr \
+                     {addr}, status {status:?}, conn_int {conn_int}, latency {latency_ms}, \
+                     timeout {timeout_ms}, min_int {min_int_ms}, max_int {max_int_ms}"
                 );
             }
             BleGapEvent::PacketLengthConfigured {
@@ -537,7 +525,7 @@ impl OmnibenchClient {
             }
             GattcEvent::Disconnected { addr, reason, .. } => {
                 let mut state = self.state.lock().unwrap();
-                state.connect = false;
+                state.connected = false;
                 state.remote_addr = None;
                 state.conn_id = None;
                 state.service_start_end_handle = None;

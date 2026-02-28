@@ -7,7 +7,7 @@ use esp_idf_svc::{
     bt::{
         BtDriver,
         ble::{
-            gap::EspBleGap,
+            gap::{BleGapEvent, EspBleGap, GapSearchEvent},
             gatt::{self, client::EspGattc},
         },
     },
@@ -25,6 +25,7 @@ use omnibench::{APP_ID, client::OmnibenchClient};
 use std::{sync::Arc, time::Duration};
 
 const RED: NeoKey1x4Color = NeoKey1x4Color { r: 255, g: 0, b: 0 };
+const BLUE: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 255 };
 const GREEN: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 255, b: 0 };
 
 pub fn main() -> anyhow::Result<()> {
@@ -52,14 +53,13 @@ pub fn main() -> anyhow::Result<()> {
     info!("Seesaw initialized");
 
     neokeys
-        .set_neopixel_colors(&[
-            RED, // if keys & 1 == 0 { GREEN } else { RED },
-            RED, // if (keys >> 1) & 1 == 0 { GREEN } else { RED },
-            RED, // if (keys >> 2) & 1 == 0 { GREEN } else { RED },
-            RED, // if (keys >> 3) & 1 == 0 { GREEN } else { RED },
-        ])
+        .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
         .and_then(|_| neokeys.sync_neopixel())?;
 
+    // if keys & 1 == 0 { GREEN } else { RED },
+    // if (keys >> 1) & 1 == 0 { GREEN } else { RED },
+    // if (keys >> 2) & 1 == 0 { GREEN } else { RED },
+    // if (keys >> 3) & 1 == 0 { GREEN } else { RED },
     let nvs = EspDefaultNvsPartition::take()?;
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
     let client = OmnibenchClient::new(
@@ -71,8 +71,15 @@ pub fn main() -> anyhow::Result<()> {
     let gap_client = client.clone();
 
     client.gap.subscribe(move |event| {
+        if let BleGapEvent::ScanResult(GapSearchEvent::InquiryComplete(_)) = event {
+            info!("Scan completed, no server found");
+            neokeys
+                .set_neopixel_colors(&[RED, RED, RED, RED])
+                .and_then(|_| neokeys.sync_neopixel())
+                .unwrap();
+        }
         if let Err(e) = gap_client.on_gap_event(event) {
-            warn!("Got status: {e:?}");
+            warn!("Got gap event error: {e:?}");
         }
     })?;
 
@@ -81,20 +88,14 @@ pub fn main() -> anyhow::Result<()> {
     client.gattc.subscribe(move |(gatt_if, event)| {
         info!("Got gattc event: {event:?}");
         if let Err(e) = gattc_client.on_gattc_event(gatt_if, event) {
-            warn!("Got status: {e:?}");
+            warn!("Got gattc event error: {e:?}");
         }
     })?;
 
     info!("BLE Gap and Gattc subscriptions initialized");
-
     client.gattc.register_app(APP_ID)?;
-
-    info!("Gattc BTP app registered");
-
     gatt::set_local_mtu(500)?;
-
-    info!("Gattc BTP app registered");
-
+    info!("Gattc BTP app registered; will wait for write characteristic");
     client.wait_for_write_char_handle();
     let mut i = 0_u16;
     let mut indicate = true;
