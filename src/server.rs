@@ -1,3 +1,4 @@
+use crate::{IND_CHARACTERISTIC_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME, SERVICE_UUID};
 use enumset::enum_set;
 use esp_idf_svc::{
     bt::{
@@ -16,14 +17,8 @@ use esp_idf_svc::{
 use log::*;
 use std::sync::{Arc, Condvar, Mutex};
 
-use crate::{IND_CHARACTERISTIC_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME, SERVICE_UUID};
-
 const MAX_CONNECTIONS: usize = 2;
 
-// Name the types as they are used in the example to get shorter type signatures
-// in the various functions below. note that - rather than `Arc`s, you can use
-// regular references as well, but then you have to deal with lifetimes
-// and the signatures below will not be `'static`.
 type ExBtDriver = BtDriver<'static, Ble>;
 type ExEspBleGap = Arc<EspBleGap<'static, Ble, Arc<ExBtDriver>>>;
 type ExEspGatts = Arc<EspGatts<'static, Ble, Arc<ExBtDriver>>>;
@@ -38,14 +33,14 @@ struct Connection {
 
 #[derive(Default)]
 struct State {
-    gatt_if: Option<GattInterface>,
-    service_handle: Option<Handle>,
-    recv_handle: Option<Handle>,
-    ind_handle: Option<Handle>,
-    ind_cccd_handle: Option<Handle>,
     connections: heapless::Vec<Connection, MAX_CONNECTIONS>,
-    response: GattResponse,
+    gatt_if: Option<GattInterface>,
+    ind_cccd_handle: Option<Handle>,
     ind_confirmed: Option<BdAddr>,
+    ind_handle: Option<Handle>,
+    recv_handle: Option<Handle>,
+    response: GattResponse,
+    service_handle: Option<Handle>,
 }
 
 #[derive(Clone)]

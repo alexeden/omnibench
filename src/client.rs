@@ -28,31 +28,19 @@ use std::{
     time::Duration,
 };
 
-// BtUuid::uuid128(0xad91b201734740479e173bed82d75f9d); // Write characteristic
-// UUID pub const WRITE_CHARACTERISITIC_UUID: BtUuid =
-// BtUuid::uuid128(0xb6fccb5087be44f3ae22f85485ea42c4); // Indicate
-// characteristic UUID pub const IND_CHARACTERISTIC_UUID: BtUuid =
-// BtUuid::uuid128(0x503de214868246c4828fd59144da41be); // Client Characteristic
-// Configuration UUID pub const IND_DESCRIPTOR_UUID: BtUuid =
-// BtUuid::uuid16(0x2902);
-
-// Name the types as they are used in the example to get shorter type signatures
-// in the various functions below. note that - rather than `Arc`s, you can use
-// regular references as well, but then you have to deal with lifetimes
-// and the signatures below will not be `'static`.
 type ExBtDriver = BtDriver<'static, Ble>;
 type ExEspBleGap = Arc<EspBleGap<'static, Ble, Arc<ExBtDriver>>>;
 type ExEspGattc = Arc<EspGattc<'static, Ble, Arc<ExBtDriver>>>;
 
 #[derive(Default)]
 struct State {
-    gattc_if: Option<GattInterface>,
     conn_id: Option<ConnectionId>,
-    remote_addr: Option<BdAddr>,
     connect: bool,
-    service_start_end_handle: Option<(Handle, Handle)>,
+    gattc_if: Option<GattInterface>,
     ind_char_handle: Option<Handle>,
     ind_descr_handle: Option<Handle>,
+    remote_addr: Option<BdAddr>,
+    service_start_end_handle: Option<(Handle, Handle)>,
     write_char_handle: Option<Handle>,
 }
 
@@ -74,67 +62,172 @@ impl OmnibenchClient {
         }
     }
 
+    /// Connect to the bt_gatt_server.
+    ///
+    /// This sets the scan params with triggers the event
+    /// `BleGapEvent::ScanParameterConfigured` where the gap callback will start
+    /// scanning. Scanning must happen before a connect can be made in
+    /// `BleGapEvent::ScanResult`.
+    pub fn connect(&self) -> Result<(), EspError> {
+        if !self.state.lock().unwrap().connect {
+            let scan_params = ScanParams {
+                scan_interval: 0x50,
+                ..Default::default()
+            };
+
+            self.gap.set_scan_params(&scan_params)?;
+        }
+
+        Ok(())
+    }
+
+    /// Disconnect from the bt_gatt_server.
+    ///
+    /// This does a physical disconnect, a `gattc.close` can also be used to
+    /// close a virtual connection which will also disconnect if there are
+    /// no more virtual connections.
+    pub fn disconnect(&self) -> Result<(), EspError> {
+        let state = self.state.lock().unwrap();
+
+        if let Some(remote_addr) = state.remote_addr {
+            self.gap.disconnect(remote_addr)?;
+        }
+
+        Ok(())
+    }
+
+    /// Subscribe or unsubsrcibe to the notifications.
+    ///
+    /// After registering for notify the CCCD descriptor is written to
+    /// enable/disbale the notification.
+    pub fn request_indicate(&self, indicate: bool) -> Result<(), EspError> {
+        let state = self.state.lock().unwrap();
+
+        let Some(gattc_if) = state.gattc_if else {
+            return Ok(());
+        };
+        let Some(conn_id) = state.conn_id else {
+            return Ok(());
+        };
+
+        if let Some(ind_descr_handle) = state.ind_descr_handle {
+            let value = if indicate {
+                info!("Subscribe indicate");
+                2_u16
+            } else {
+                info!("Unsubscribe indicate");
+                0_u16
+            }
+            .to_le_bytes();
+
+            self.gattc.write_descriptor(
+                gattc_if,
+                conn_id,
+                ind_descr_handle,
+                &value,
+                GattWriteType::RequireResponse,
+                GattAuthReq::None,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Wait for the discovery of the write characteristic handle.
+    pub fn wait_for_write_char_handle(&self) {
+        let mut state = self.state.lock().unwrap();
+        while state.write_char_handle.is_none() {
+            state = self.condvar.wait(state).unwrap();
+        }
+    }
+
+    // Write some data to the write characteristic.
+    pub fn write_characterisitic(&self, char_value: &[u8]) -> Result<(), EspError> {
+        let state = self.state.lock().unwrap();
+
+        let Some(gattc_if) = state.gattc_if else {
+            return Ok(());
+        };
+        let Some(conn_id) = state.conn_id else {
+            return Ok(());
+        };
+
+        if let Some(write_char_handle) = state.write_char_handle {
+            self.gattc.write_characteristic(
+                gattc_if,
+                conn_id,
+                write_char_handle,
+                char_value,
+                GattWriteType::RequireResponse,
+                GattAuthReq::None,
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// The main event handler for the GAP events
     pub fn on_gap_event(&self, event: BleGapEvent) -> Result<(), EspError> {
-        info!("Got gap event: {event:?}");
-
         match event {
             BleGapEvent::ScanParameterConfigured(status) => {
+                info!("BleGapEvent::ScanParameterConfigured: {status:?}");
                 self.check_bt_status(status)?;
-                self.gap.start_scanning(30)?;
+                self.gap.start_scanning(10)?;
             }
             BleGapEvent::ScanStarted(status) => {
+                info!("BleGapEvent::ScanStarted: {status:?}");
                 self.check_bt_status(status)?;
-                info!("Scanning started");
             }
-            BleGapEvent::ScanResult(search_evt) => {
-                if matches!(search_evt, GapSearchEvent::InquiryComplete(_)) {
-                    info!("Scan completed, no server {SERVER_NAME} found");
-                } else if let GapSearchEvent::InquiryResult(GapSearchResult {
-                    bda,
-                    ble_addr_type,
-                    rssi,
-                    ble_adv,
-                    ..
-                }) = search_evt
-                {
-                    let name = ble_adv
-                        .and_then(|ble_adv| {
-                            self.gap
-                                .resolve_adv_data_by_type(ble_adv, AdvertisingDataType::NameCmpl)
-                        })
-                        .map(|n| std::str::from_utf8(n))
-                        .transpose()
-                        .ok()
-                        .flatten();
+            BleGapEvent::ScanResult(GapSearchEvent::InquiryComplete(_)) => {
+                info!("Scan completed, no server {SERVER_NAME} found");
+            }
+            BleGapEvent::ScanResult(GapSearchEvent::InquiryResult(GapSearchResult {
+                bda,
+                ble_addr_type,
+                rssi: _,
+                ble_adv,
+                ..
+            })) => {
+                let name = ble_adv
+                    .and_then(|ble_adv| {
+                        self.gap
+                            .resolve_adv_data_by_type(ble_adv, AdvertisingDataType::NameCmpl)
+                    })
+                    .map(|n| std::str::from_utf8(n))
+                    .transpose()
+                    .ok()
+                    .flatten();
 
-                    info!("Scan result, device {bda} - rssi {rssi}, name: {name:?}");
+                // if let Some(n) = name {
+                //     info!("BleGapEvent::ScanResult(GapSearchEvent::InquiryResult): {n:?}");
+                // }
 
-                    if let Some(name) = name.filter(|n| *n == SERVER_NAME) {
-                        info!("Device found: {name:?}");
+                if let Some(name) = name.filter(|n| *n == SERVER_NAME) {
+                    info!("!!! Device found: {name:?}");
 
-                        let mut state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().unwrap();
 
-                        if !state.connect {
-                            state.connect = true;
-                            info!("Connect to remote {bda}");
-                            self.gap.stop_scanning()?;
+                    if !state.connect {
+                        state.connect = true;
+                        info!("!!! Connect to remote {bda}");
+                        self.gap.stop_scanning()?;
 
-                            let conn_params = GattCreateConnParams::new(bda, ble_addr_type);
+                        let conn_params = GattCreateConnParams::new(bda, ble_addr_type);
 
-                            self.gattc.enh_open(state.gattc_if.unwrap(), &conn_params)?;
-                        }
+                        self.gattc.enh_open(state.gattc_if.unwrap(), &conn_params)?;
                     }
-
-                    // If there are many devices found the logging tends to take too long and the
-                    // wdt kicks in
-                    std::thread::sleep(Duration::from_millis(10));
                 }
+
+                // If there are many devices found the logging tends to take too long and
+                // the wdt kicks in
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            BleGapEvent::ScanResult(evt) => {
+                info!("BleGapEvent::ScanResult: {evt:?}");
             }
             BleGapEvent::ScanStopped(status) => {
+                info!("BleGapEvent::ScanStopped: {status:?}");
                 self.check_bt_status(status)?;
-
-                info!("Scanning stopped");
             }
             BleGapEvent::ConnectionParamsConfigured {
                 addr,
@@ -156,9 +249,14 @@ impl OmnibenchClient {
                 rx_len,
                 tx_len,
             } => {
-                info!("Packet length update, status {status:?}, rx {rx_len}, tx {tx_len}");
+                info!(
+                    "BleGapEvent::PacketLengthConfigured: status {status:?}, rx {rx_len}, tx \
+                     {tx_len}"
+                );
             }
-            _ => (),
+            evt => {
+                info!("BleGapEvent: {evt:?}");
+            }
         }
 
         Ok(())
@@ -448,124 +546,16 @@ impl OmnibenchClient {
                 state.write_char_handle = None;
                 info!("Disconnected, remote {addr}, reason {reason:?}");
             }
-            _ => (),
-        }
-        Ok(())
-    }
-
-    /// Connect to the bt_gatt_server.
-    ///
-    /// This sets the scan params with triggers the event
-    /// `BleGapEvent::ScanParameterConfigured` where the gap callback will
-    /// start scanning. Scanning must happen before a connect can be made in
-    /// `BleGapEvent::ScanResult`.
-    pub fn connect(&self) -> Result<(), EspError> {
-        if !self.state.lock().unwrap().connect {
-            let scan_params = ScanParams {
-                scan_interval: 0x50,
-                ..Default::default()
-            };
-
-            self.gap.set_scan_params(&scan_params)?;
-        }
-
-        Ok(())
-    }
-
-    /// Disconnect from the bt_gatt_server.
-    ///
-    /// This does a physical disconnect, a `gattc.close` can also be used to
-    /// close a virtual connection which will also disconnect if there are
-    /// no more virtual connections.
-    pub fn disconnect(&self) -> Result<(), EspError> {
-        let state = self.state.lock().unwrap();
-
-        if let Some(remote_addr) = state.remote_addr {
-            self.gap.disconnect(remote_addr)?;
-        }
-
-        Ok(())
-    }
-
-    /// Subscribe or unsubsrcibe to the notifications.
-    ///
-    /// After registering for notify the CCCD descriptor is written to
-    /// enable/disbale the notification.
-    pub fn request_indicate(&self, indicate: bool) -> Result<(), EspError> {
-        let state = self.state.lock().unwrap();
-
-        let Some(gattc_if) = state.gattc_if else {
-            return Ok(());
-        };
-        let Some(conn_id) = state.conn_id else {
-            return Ok(());
-        };
-
-        if let Some(ind_descr_handle) = state.ind_descr_handle {
-            let value = if indicate {
-                info!("Subscribe indicate");
-                2_u16
-            } else {
-                info!("Unsubscribe indicate");
-                0_u16
+            evt => {
+                info!("GattcEvent: {evt:?}");
             }
-            .to_le_bytes();
-
-            self.gattc.write_descriptor(
-                gattc_if,
-                conn_id,
-                ind_descr_handle,
-                &value,
-                GattWriteType::RequireResponse,
-                GattAuthReq::None,
-            )?;
         }
-
         Ok(())
-    }
-
-    /// Wait for the discovery of the write characteristic handle.
-    pub fn wait_for_write_char_handle(&self) {
-        let mut state = self.state.lock().unwrap();
-        while state.write_char_handle.is_none() {
-            state = self.condvar.wait(state).unwrap();
-        }
-    }
-
-    // Write some data to the write characteristic.
-    pub fn write_characterisitic(&self, char_value: &[u8]) -> Result<(), EspError> {
-        let state = self.state.lock().unwrap();
-
-        let Some(gattc_if) = state.gattc_if else {
-            return Ok(());
-        };
-        let Some(conn_id) = state.conn_id else {
-            return Ok(());
-        };
-
-        if let Some(write_char_handle) = state.write_char_handle {
-            self.gattc.write_characteristic(
-                gattc_if,
-                conn_id,
-                write_char_handle,
-                char_value,
-                GattWriteType::RequireResponse,
-                GattAuthReq::None,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn check_esp_status(&self, status: Result<(), EspError>) {
-        if let Err(e) = status {
-            warn!("Got status: {e:?}");
-        }
     }
 
     fn check_bt_status(&self, status: BtStatus) -> Result<(), EspError> {
         if !matches!(status, BtStatus::Success) {
-            warn!("Got status: {status:?}");
+            warn!("!!! ERROR STATUS !!!: {status:?}");
             Err(EspError::from_infallible::<ESP_FAIL>())
         } else {
             Ok(())

@@ -8,6 +8,7 @@ edition = "2024"
 embuild = "0.33"
 
 [dependencies]
+adafruit-seesaw = { version = "0.13", features = ["nightly"] }
 anyhow = "1"
 enumset = "1"
 esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
