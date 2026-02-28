@@ -1,15 +1,3 @@
-[workspace]
-members = []
-resolver = "2"
-
-[workspace.dependencies]
-anyhow = "1"
-embuild = "0.33"
-esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
-log = { version = "0.4", default-features = false }
-
-heapless = { version = "0.9", default-features = false }
-
 [package]
 name = "omnibench"
 authors = ["Alex Eden <alexandereden91@gmail.com>"]
@@ -17,14 +5,14 @@ version = "0.1.0"
 edition = "2024"
 
 [build-dependencies]
-embuild.workspace = true
+embuild = "0.33"
 
 [dependencies]
-anyhow.workspace = true
+anyhow = "1"
 enumset = "1"
-esp-idf-svc.workspace = true
-heapless.workspace = true
-log.workspace = true
+esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
+heapless = { version = "0.9", default-features = false }
+log = { version = "0.4", default-features = false }
 
 [patch.crates-io]
 esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }
