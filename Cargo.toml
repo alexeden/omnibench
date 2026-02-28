@@ -1,12 +1,10 @@
 [workspace]
-members = [
-  # "omniserver",
-  # "omniclient",
-]
+members = []
 resolver = "2"
 
 [workspace.dependencies]
 anyhow = "1"
+embuild = "0.33"
 esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
 log = { version = "0.4", default-features = false }
 
@@ -18,6 +16,9 @@ authors = ["Alex Eden <alexandereden91@gmail.com>"]
 version = "0.1.0"
 edition = "2024"
 
+[build-dependencies]
+embuild.workspace = true
+
 [dependencies]
 anyhow.workspace = true
 enumset = "1"
@@ -25,16 +26,11 @@ esp-idf-svc.workspace = true
 heapless.workspace = true
 log.workspace = true
 
-# anyhow = { version = "1.0.100", features = ["backtrace"] }
-# embuild = { version = "0.33", features = ["espidf"] }
+[patch.crates-io]
+esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }
+esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
+esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal" }
+embedded-svc = { git = "https://github.com/esp-rs/embedded-svc" }
 
-# [workspace.build-dependencies]
-# esp-idf-sys = "0.36"
-
-# heapless = "0.9"
-# log = { version = "0.4", default-features = false }
-
-# [patch.crates-io]
-# esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }
 # esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
 # esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal" }
