@@ -29,12 +29,14 @@ fn main() -> anyhow::Result<()> {
     let gap_server = server.clone();
 
     server.gap.subscribe(move |event| {
+        info!("Server got gap event: {event:?}");
         gap_server.check_esp_status(gap_server.on_gap_event(event));
     })?;
 
     let gatts_server = server.clone();
 
     server.gatts.subscribe(move |(gatt_if, event)| {
+        info!("Server got gatts event: {event:?}");
         gatts_server.check_esp_status(gatts_server.on_gatts_event(gatt_if, event))
     })?;
 

@@ -6,7 +6,7 @@ use esp_idf_svc::{
             gatt::{self, client::EspGattc},
         },
     },
-    hal::{delay::FreeRtos, peripherals::Peripherals},
+    hal::peripherals::Peripherals,
     log::EspLogger,
     nvs::EspDefaultNvsPartition,
 };
@@ -33,12 +33,14 @@ pub fn main() -> anyhow::Result<()> {
     let gap_client = client.clone();
 
     client.gap.subscribe(move |event| {
+        info!("Got gap event: {event:?}");
         gap_client.check_esp_status(gap_client.on_gap_event(event));
     })?;
 
     let gattc_client = client.clone();
 
     client.gattc.subscribe(move |(gatt_if, event)| {
+        info!("Got gattc event: {event:?}");
         gattc_client.check_esp_status(gattc_client.on_gattc_event(gatt_if, event))
     })?;
 
@@ -69,11 +71,11 @@ pub fn main() -> anyhow::Result<()> {
 
         write_data = write_data.wrapping_add(1);
 
-        FreeRtos::delay_ms(5000);
+        std::thread::sleep(std::time::Duration::from_secs(5));
 
         if write_data.is_multiple_of(30) {
             client.disconnect()?;
-            FreeRtos::delay_ms(5000);
+            std::thread::sleep(std::time::Duration::from_secs(5));
             client.connect()?;
         }
     }
