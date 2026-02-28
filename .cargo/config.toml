@@ -1,40 +1,31 @@
-# Need a list of available targets?
-# rustc --print target-list
 [build]
-# target = "xtensa-esp32-espidf"
-# target = "xtensa-esp32s2-espidf"
+# target = "riscv32imc-esp-espidf"
+#target = "riscv32imac-esp-espidf"
 target = "xtensa-esp32s3-espidf"
 
 [target.xtensa-esp32-espidf]
 linker = "ldproxy"
 rustflags = ["--cfg", "espidf_time64"]
 
-[target.xtensa-esp32s2-espidf]
-linker = "ldproxy"
-rustflags = ["--cfg", "espidf_time64"]
+# [target.xtensa-esp32s2-espidf]
+# linker = "ldproxy"
+# rustflags = ["--cfg", "espidf_time64"]
 
 [target.xtensa-esp32s3-espidf]
 linker = "ldproxy"
 rustflags = ["--cfg", "espidf_time64"]
 
-[unstable]
-build-std = ["std", "panic_abort"]
-build-std-features = ["panic_immediate_abort"]
+# [target.riscv32imc-esp-espidf]
+# linker = "ldproxy"
+# rustflags = ["--cfg", "espidf_time64"]
+
+# [target.riscv32imac-esp-espidf]
+# linker = "ldproxy"
+# rustflags = ["--cfg", "espidf_time64"]
 
 [env]
 ESP_IDF_SDKCONFIG_DEFAULTS = "sdkconfig.defaults"
-ESP_IDF_VERSION = "v5.3.3"
-# Wifi network
-DEVICE_ID = "7b811e5c-567e-401b-82b1-0be69ab1e39b"
-# IOT_URL = "http://0.0.0.0:8060"
-IOT_URL = "https://iot.ape.works"
-PASS = "Ae1011654"
-# SSID = "Ape"
-SSID = "apefi-2ghz"
-# CHANNEL = "11"
-# PASS = "SeasonsWelcome"
-# SSID = "smc-guest"
-# PASS = "19671992"
-# SSID = "olinad"
-CROSS_COMPILE = "xtensa-esp32s3-elf"
-CFLAGS = "-mlongcalls"
+ESP_IDF_VERSION = "v5.4.2"
+
+[unstable]
+build-std = ["std", "panic_abort"]

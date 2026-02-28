@@ -1,40 +1,40 @@
 [workspace]
 members = [
-  "omniserver",
+  # "omniserver",
   # "omniclient",
 ]
 resolver = "2"
 
 [workspace.dependencies]
-anyhow = { version = "1.0.100", features = ["backtrace"] }
-# embedded-hal = "1.0"
-# embedded-svc = "0.28"
-embuild = "0.33"
-# embedded-hal-bus = { version = "0.3", features = ["std"] }
-# esp-idf-sys = "0.36"
-esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc", features = ["alloc", "experimental"] }
-heapless = "0.9"
+anyhow = "1"
+esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
 log = { version = "0.4", default-features = false }
+
+heapless = { version = "0.9", default-features = false }
+
+[package]
+name = "omnibench"
+authors = ["Alex Eden <alexandereden91@gmail.com>"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+enumset = "1"
+esp-idf-svc.workspace = true
+heapless.workspace = true
+log.workspace = true
+
+# anyhow = { version = "1.0.100", features = ["backtrace"] }
+# embuild = { version = "0.33", features = ["espidf"] }
+
+# [workspace.build-dependencies]
+# esp-idf-sys = "0.36"
+
+# heapless = "0.9"
+# log = { version = "0.4", default-features = false }
 
 # [patch.crates-io]
 # esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }
 # esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
 # esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal" }
-
-[workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = [
-  'cfg(esp32)',
-  'cfg(esp32s2)',
-  'cfg(esp32s3)',
-] }
-
-[profile.release]
-codegen-units = 1   # better optimizations
-debug = true        # symbols are nice and they don't increase the size on Flash
-lto = true          # better optimizations
-incremental = false
-opt-level = 's'
-
-[profile.dev]
-debug = true    # Symbols are nice and they don't increase the size on Flash
-opt-level = "z"
