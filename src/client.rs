@@ -1,6 +1,10 @@
+use crate::{
+    IND_CHARACTERISTIC_UUID, IND_DESCRIPTOR_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME,
+    SERVICE_UUID,
+};
 use esp_idf_svc::{
     bt::{
-        BdAddr, Ble, BtDriver, BtStatus, BtUuid,
+        BdAddr, Ble, BtDriver, BtStatus,
         ble::{
             gap::{
                 AdvertisingDataType, BleGapEvent, EspBleGap, GapSearchEvent, GapSearchResult,
@@ -24,16 +28,13 @@ use std::{
     time::Duration,
 };
 
-// bt_gatt_server name
-pub const SERVER_NAME: &str = "ESP32";
-// bt_gatt_server service UUID
-pub const SERVICE_UUID: BtUuid = BtUuid::uuid128(0xad91b201734740479e173bed82d75f9d);
-// Write characteristic UUID
-pub const WRITE_CHARACTERISITIC_UUID: BtUuid = BtUuid::uuid128(0xb6fccb5087be44f3ae22f85485ea42c4);
-// Indicate characteristic UUID
-pub const IND_CHARACTERISTIC_UUID: BtUuid = BtUuid::uuid128(0x503de214868246c4828fd59144da41be);
-// Client Characteristic Configuration UUID
-pub const IND_DESCRIPTOR_UUID: BtUuid = BtUuid::uuid16(0x2902);
+// BtUuid::uuid128(0xad91b201734740479e173bed82d75f9d); // Write characteristic
+// UUID pub const WRITE_CHARACTERISITIC_UUID: BtUuid =
+// BtUuid::uuid128(0xb6fccb5087be44f3ae22f85485ea42c4); // Indicate
+// characteristic UUID pub const IND_CHARACTERISTIC_UUID: BtUuid =
+// BtUuid::uuid128(0x503de214868246c4828fd59144da41be); // Client Characteristic
+// Configuration UUID pub const IND_DESCRIPTOR_UUID: BtUuid =
+// BtUuid::uuid16(0x2902);
 
 // Name the types as they are used in the example to get shorter type signatures
 // in the various functions below. note that - rather than `Arc`s, you can use
@@ -337,7 +338,7 @@ impl OmnibenchClient {
                             conn_id,
                             start_handle,
                             end_handle,
-                            &WRITE_CHARACTERISITIC_UUID,
+                            &RECV_CHARACTERISTIC_UUID,
                             &mut chars,
                         ) {
                             Ok(char_count) => {

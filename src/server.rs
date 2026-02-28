@@ -16,16 +16,9 @@ use esp_idf_svc::{
 use log::*;
 use std::sync::{Arc, Condvar, Mutex};
 
+use crate::{IND_CHARACTERISTIC_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME, SERVICE_UUID};
+
 const MAX_CONNECTIONS: usize = 2;
-
-// Our service UUID
-pub const SERVICE_UUID: u128 = 0xad91b201734740479e173bed82d75f9d;
-
-/// Our "recv" characteristic - i.e. where clients can send data.
-pub const RECV_CHARACTERISTIC_UUID: u128 = 0xb6fccb5087be44f3ae22f85485ea42c4;
-/// Our "indicate" characteristic - i.e. where clients can receive data if they
-/// subscribe to it
-pub const IND_CHARACTERISTIC_UUID: u128 = 0x503de214868246c4828fd59144da41be;
 
 // Name the types as they are used in the example to get shorter type signatures
 // in the various functions below. note that - rather than `Arc`s, you can use
@@ -272,7 +265,7 @@ impl OmnibenchServer {
             include_name: true,
             include_txpower: true,
             flag: 2,
-            service_uuid: Some(BtUuid::uuid128(SERVICE_UUID)),
+            service_uuid: Some(SERVICE_UUID),
             // service_data: todo!(),
             // manufacturer_data: todo!(),
             ..Default::default()
@@ -285,13 +278,13 @@ impl OmnibenchServer {
     fn create_service(&self, gatt_if: GattInterface) -> Result<(), EspError> {
         self.state.lock().unwrap().gatt_if = Some(gatt_if);
 
-        self.gap.set_device_name("ESP32")?;
+        self.gap.set_device_name(SERVER_NAME)?;
         self.set_adv_conf()?;
         self.gatts.create_service(
             gatt_if,
             &GattServiceId {
                 id: GattId {
-                    uuid: BtUuid::uuid128(SERVICE_UUID),
+                    uuid: SERVICE_UUID,
                     inst_id: 0,
                 },
                 is_primary: true,
@@ -350,7 +343,7 @@ impl OmnibenchServer {
         self.gatts.add_characteristic(
             service_handle,
             &GattCharacteristic {
-                uuid: BtUuid::uuid128(RECV_CHARACTERISTIC_UUID),
+                uuid: RECV_CHARACTERISTIC_UUID,
                 permissions: enum_set!(Permission::Write),
                 properties: enum_set!(Property::Write),
                 max_len: 200, // Max recv data
@@ -362,7 +355,7 @@ impl OmnibenchServer {
         self.gatts.add_characteristic(
             service_handle,
             &GattCharacteristic {
-                uuid: BtUuid::uuid128(IND_CHARACTERISTIC_UUID),
+                uuid: IND_CHARACTERISTIC_UUID,
                 permissions: enum_set!(Permission::Write | Permission::Read),
                 properties: enum_set!(Property::Indicate),
                 max_len: 200, // Mac iondicate data
@@ -389,11 +382,11 @@ impl OmnibenchServer {
 
             if state.service_handle != Some(service_handle) {
                 false
-            } else if char_uuid == BtUuid::uuid128(RECV_CHARACTERISTIC_UUID) {
+            } else if char_uuid == RECV_CHARACTERISTIC_UUID {
                 state.recv_handle = Some(attr_handle);
 
                 false
-            } else if char_uuid == BtUuid::uuid128(IND_CHARACTERISTIC_UUID) {
+            } else if char_uuid == IND_CHARACTERISTIC_UUID {
                 state.ind_handle = Some(attr_handle);
 
                 true
