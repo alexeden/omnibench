@@ -22,7 +22,7 @@ use esp_idf_svc::{
     sys::{ESP_FAIL, EspError},
 };
 use log::*;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum ConnectionStatus {
@@ -61,7 +61,6 @@ pub struct OmnibenchClient {
     pub gap: ExEspBleGap,
     pub gattc: ExEspGattc,
     state: Arc<Mutex<State>>,
-    condvar: Arc<Condvar>,
 }
 
 impl OmnibenchClient {
@@ -70,7 +69,6 @@ impl OmnibenchClient {
             gap,
             gattc,
             state: Arc::new(Mutex::new(Default::default())),
-            condvar: Arc::new(Condvar::new()),
         }
     }
 
@@ -146,14 +144,6 @@ impl OmnibenchClient {
         }
 
         Ok(())
-    }
-
-    /// Wait for the discovery of the write characteristic handle.
-    pub fn wait_for_write_char_handle(&self) {
-        let mut state = self.state.lock().unwrap();
-        while state.write_char_handle.is_none() {
-            state = self.condvar.wait(state).unwrap();
-        }
     }
 
     // Write some data to the write characteristic.
@@ -430,7 +420,6 @@ impl OmnibenchClient {
                                 if write_char_elem.properties().contains(Property::Write) {
                                     state.write_char_handle = Some(write_char_elem.handle());
                                     state.status = ConnectionStatus::Connected;
-                                    self.condvar.notify_all();
                                 } else {
                                     error!("Write characteristic does not have property Write");
                                 }

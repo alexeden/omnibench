@@ -65,7 +65,6 @@ pub fn main() -> anyhow::Result<()> {
     info!("Seesaw initialized");
 
     // Start blue — scanning is about to begin
-    // set_leds(&mut neokeys, BLUE)?;
     neokeys
         .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
         .and_then(|_| neokeys.sync_neopixel())
@@ -116,7 +115,6 @@ pub fn main() -> anyhow::Result<()> {
                 ConnectionStatus::Error => ORANGE,
             };
             info!("Connection status: {status:?}");
-            // set_leds(&mut neokeys, color)?;
             neokeys
                 .set_neopixel_colors(&[color, color, color, color])
                 .and_then(|_| neokeys.sync_neopixel())
@@ -147,10 +145,3 @@ pub fn main() -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(100));
     }
 }
-
-// fn set_leds(neokeys: &mut NeoKey1x4<impl SeesawDevice>, color:
-// NeoKey1x4Color) -> anyhow::Result<()> {     neokeys
-//         .set_neopixel_colors(&[color, color, color, color])
-//         .and_then(|_| neokeys.sync_neopixel())
-//         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
-// }
