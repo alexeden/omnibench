@@ -13,7 +13,7 @@ use esp_idf_svc::{
             gatt::{
                 GattInterface, GattStatus, Handle, Property,
                 client::{
-                    CharacteristicElement, ConnectionId, DbAttrType, DbElement, DescriptorElement,
+                    CharacteristicElement, ConnectionId, DbAttrType, DescriptorElement,
                     EspGattc, GattAuthReq, GattCreateConnParams, GattWriteType, GattcEvent,
                 },
             },
@@ -147,7 +147,7 @@ impl OmnibenchClient {
     }
 
     // Write some data to the write characteristic.
-    pub fn write_characterisitic(&self, char_value: &[u8]) -> Result<(), EspError> {
+    pub fn write_characteristic(&self, char_value: &[u8]) -> Result<(), EspError> {
         let state = self.state.lock().unwrap();
 
         let Some(gattc_if) = state.gattc_if else {
@@ -301,11 +301,10 @@ impl OmnibenchClient {
                     .search_service(gattc_if, conn_id, Some(&SERVICE_UUID))?;
             }
             GattcEvent::SearchResult {
-                conn_id,
                 start_handle,
                 end_handle,
                 srvc_id,
-                is_primary,
+                ..
             } if srvc_id.uuid == SERVICE_UUID => {
                 info!("GattcEvent::SearchResult: service found",);
                 self.state.lock().unwrap().service_start_end_handle =
@@ -325,31 +324,6 @@ impl OmnibenchClient {
                 let mut state = self.state.lock().unwrap();
 
                 if let Some((start_handle, end_handle)) = state.service_start_end_handle {
-                    // Enumerate all the elements for info purposes
-                    let mut db_results = [DbElement::new(); 10];
-                    match self.gattc.get_db(
-                        gattc_if,
-                        conn_id,
-                        start_handle,
-                        end_handle,
-                        &mut db_results,
-                    ) {
-                        Ok(db_count) => {
-                            info!("Found {db_count} DB elements");
-
-                            if db_count > 0 {
-                                for db_elem in db_results[..db_count].iter() {
-                                    info!("DB element {db_elem:?}");
-                                }
-                            } else {
-                                info!("No DB elements found?");
-                            }
-                        }
-                        Err(status) => {
-                            error!("Get all DB elements error {status:?}");
-                        }
-                    }
-
                     let char_count = self
                         .gattc
                         .get_attr_count(
@@ -477,18 +451,6 @@ impl OmnibenchClient {
                     }
                 }
             }
-            // GattcEvent::Notify {
-            //     addr,
-            //     handle,
-            //     value,
-            //     is_notify,
-            //     ..
-            // } => {
-            //     info!(
-            //         "GattcEvent::Notify: is_notify {is_notify}, addr {addr}, handle {handle}, \
-            //          value {value:?}"
-            //     );
-            // }
             GattcEvent::WriteDescriptor { status, .. }
             | GattcEvent::WriteCharacteristic { status, .. } => {
                 self.check_gatt_status(status)?;
