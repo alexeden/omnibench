@@ -7,6 +7,10 @@ edition = "2024"
 [build-dependencies]
 embuild = "0.33"
 
+[features]
+relay = []
+# default = ["relay"]
+
 [dependencies]
 adafruit-seesaw = { version = "0.13", features = ["nightly"] }
 anyhow = "1"
@@ -15,6 +19,7 @@ embedded-hal-bus = "0.3"
 esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
 heapless = { version = "0.9", default-features = false }
 log = { version = "0.4", default-features = false }
+port-expander = "0.6"
 
 [patch.crates-io]
 esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }

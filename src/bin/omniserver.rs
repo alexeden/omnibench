@@ -3,6 +3,7 @@ use adafruit_seesaw::{
     devices::{NeoTrellis, NeoTrellisColor},
     prelude::*,
 };
+use embedded_hal_bus::i2c::RefCellDevice;
 use esp_idf_svc::{
     bt::{
         BtDriver,
@@ -23,7 +24,10 @@ use omnibench::{
     protocol::{ButtonEvent, RelayState},
     server::OmnibenchServer,
 };
+#[cfg(feature = "relay")]
+use port_expander::{Pcf8574a, write_multiple};
 use std::{
+    cell::RefCell,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -53,10 +57,19 @@ fn main() -> anyhow::Result<()> {
     let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
     let delay = Delay::new_default();
-    let i2c = I2cDriver::<'static>::new(peripherals.i2c0, sda, scl, &config)?;
+    let i2c = RefCell::new(I2cDriver::<'static>::new(
+        peripherals.i2c0,
+        sda,
+        scl,
+        &config,
+    )?);
     i2c_power.set_high()?;
+
+    #[cfg(feature = "relay")]
+    let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
+
     std::thread::sleep(Duration::from_millis(50));
-    let seesaw = SeesawDriver::new(delay, i2c);
+    let seesaw = SeesawDriver::new(delay, RefCellDevice::new(&i2c));
 
     let mut trellis = NeoTrellis::new_with_default_addr(seesaw)
         .init()
@@ -81,14 +94,14 @@ fn main() -> anyhow::Result<()> {
     let gap_server = server.clone();
 
     server.gap.subscribe(move |event| {
-        info!("Server got gap event: {event:?}");
+        // info!("Server got gap event: {event:?}");
         gap_server.check_esp_status(gap_server.on_gap_event(event));
     })?;
 
     let gatts_server = server.clone();
 
     server.gatts.subscribe(move |(gatt_if, event)| {
-        info!("Server got gatts event: {event:?}");
+        // info!("Server got gatts event: {event:?}");
         gatts_server.check_esp_status(gatts_server.on_gatts_event(gatt_if, event))
     })?;
 
@@ -152,6 +165,24 @@ fn main() -> anyhow::Result<()> {
                 .set_neopixel_colors(&colors)
                 .and_then(|_| trellis.sync_neopixel())
                 .expect("Failed to update NeoTrellis LEDs");
+            #[cfg(feature = "relay")]
+            {
+                let mut pins = relays.split();
+                write_multiple(
+                    [
+                        &mut pins.p0,
+                        &mut pins.p1,
+                        &mut pins.p2,
+                        &mut pins.p3,
+                        &mut pins.p4,
+                        &mut pins.p5,
+                        &mut pins.p6,
+                        &mut pins.p7,
+                    ],
+                    std::array::from_fn(|i| current_state.is_on(i as u8)),
+                )?;
+            }
+
             last_relay_state = Some(current_state);
             last_connected = Some(connected);
         }
