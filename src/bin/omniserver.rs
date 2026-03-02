@@ -33,11 +33,9 @@ const WHITE: NeoTrellisColor = NeoTrellisColor {
     g: 255,
     b: 255,
 };
-const DIM_WHITE: NeoTrellisColor = NeoTrellisColor {
-    r: 15,
-    g: 15,
-    b: 15,
-};
+const DIM_WHITE: NeoTrellisColor = NeoTrellisColor { r: 2, g: 2, b: 2 };
+const RED: NeoTrellisColor = NeoTrellisColor { r: 255, g: 0, b: 0 };
+const DIM_RED: NeoTrellisColor = NeoTrellisColor { r: 5, g: 0, b: 0 };
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::hal::sys::link_patches();
@@ -127,19 +125,27 @@ fn main() -> anyhow::Result<()> {
         server_sub.check_esp_status(server_sub.notify(&state.to_bytes()));
     });
 
-    // Main loop: update NeoTrellis LEDs whenever the relay state changes.
-    // Each relay maps to one row of 4 LEDs (relay 0 = row 0, …, relay 3 = row 3).
+    // Main loop: update NeoTrellis LEDs whenever the relay state or connection
+    // state changes. Each relay maps to 2 LEDs. Color scheme: white = connected,
+    // red = no clients connected. Brightness reflects relay on/off state.
     let mut last_relay_state: Option<RelayState> = None;
+    let mut last_connected: Option<bool> = None;
 
     loop {
         let current_state = *relay_state.lock().unwrap();
+        let connected = server.has_connections();
 
-        if Some(current_state) != last_relay_state {
+        if Some(current_state) != last_relay_state || Some(connected) != last_connected {
+            let (on_color, off_color) = if connected {
+                (WHITE, DIM_WHITE)
+            } else {
+                (RED, DIM_RED)
+            };
             let colors: [NeoTrellisColor; 16] = std::array::from_fn(|i| {
                 if current_state.is_on((i / 2) as u8) {
-                    WHITE
+                    on_color
                 } else {
-                    DIM_WHITE
+                    off_color
                 }
             });
             trellis
@@ -147,8 +153,9 @@ fn main() -> anyhow::Result<()> {
                 .and_then(|_| trellis.sync_neopixel())
                 .expect("Failed to update NeoTrellis LEDs");
             last_relay_state = Some(current_state);
+            last_connected = Some(connected);
         }
 
-        std::thread::sleep(Duration::from_millis(10));
+        // std::thread::sleep(Duration::from_millis(10));
     }
 }

@@ -65,6 +65,11 @@ impl OmnibenchServer {
 }
 
 impl OmnibenchServer {
+    /// Returns true if at least one client is currently connected.
+    pub fn has_connections(&self) -> bool {
+        !self.state.lock().unwrap().connections.is_empty()
+    }
+
     /// Send (notify) data to all peers that are currently subscribed to our
     /// notify characteristic.
     ///

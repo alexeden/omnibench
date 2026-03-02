@@ -40,22 +40,23 @@ const WHITE: NeoKey1x4Color = NeoKey1x4Color {
     g: 255,
     b: 255,
 };
-const DIM_WHITE: NeoKey1x4Color = NeoKey1x4Color {
-    r: 15,
-    g: 15,
-    b: 15,
-};
+const DIM_WHITE: NeoKey1x4Color = NeoKey1x4Color { r: 3, g: 3, b: 3 };
 const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
     r: 255,
     g: 128,
     b: 0,
 };
 
-type NeoKeys<'bus> =
-    NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
+type NeoKeys<'bus> = NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
 
 fn button_color(pressed: bool, relay_on: bool) -> NeoKey1x4Color {
-    if pressed { BLUE } else if relay_on { WHITE } else { DIM_WHITE }
+    if pressed {
+        BLUE
+    } else if relay_on {
+        WHITE
+    } else {
+        DIM_WHITE
+    }
 }
 
 fn update_strip(
@@ -158,7 +159,8 @@ pub fn main() -> anyhow::Result<()> {
     let mut last_status = None;
     let mut last_relay_state: Option<RelayState> = None;
     // Previous key bitmask for edge detection (0 = pressed, active low).
-    // Start all-high (no keys pressed). Low nibble = strip 0, high nibble = strip 1.
+    // Start all-high (no keys pressed). Low nibble = strip 0, high nibble = strip
+    // 1.
     let mut last_keys: u8 = 0xFF;
 
     loop {
@@ -219,6 +221,6 @@ pub fn main() -> anyhow::Result<()> {
         }
         last_keys = keys;
 
-        std::thread::sleep(Duration::from_millis(1));
+        // std::thread::sleep(Duration::from_millis(1));
     }
 }
