@@ -136,7 +136,7 @@ fn main() -> anyhow::Result<()> {
 
         if Some(current_state) != last_relay_state {
             let colors: [NeoTrellisColor; 16] = std::array::from_fn(|i| {
-                if current_state.is_on((i / 4) as u8) {
+                if current_state.is_on((i / 2) as u8) {
                     WHITE
                 } else {
                     DIM_WHITE

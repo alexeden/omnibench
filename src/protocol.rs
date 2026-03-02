@@ -27,7 +27,7 @@ impl RelayState {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        bytes.first().map(|&b| Self(b & 0x0F))
+        bytes.first().map(|&b| Self(b))
     }
 }
 
@@ -55,7 +55,7 @@ impl ButtonEvent {
         bytes
             .first()
             .copied()
-            .filter(|&b| b < 4)
+            .filter(|&b| b < 8)
             .map(|relay| Self { relay })
     }
 }

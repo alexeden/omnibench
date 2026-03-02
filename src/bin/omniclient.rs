@@ -51,6 +51,36 @@ const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
     b: 0,
 };
 
+type NeoKeys<'bus> =
+    NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
+
+fn button_color(pressed: bool, relay_on: bool) -> NeoKey1x4Color {
+    if pressed { BLUE } else if relay_on { WHITE } else { DIM_WHITE }
+}
+
+fn update_strip(
+    strip: &mut NeoKeys<'_>,
+    nibble: u8,
+    relay_state: RelayState,
+    relay_offset: u8,
+) -> anyhow::Result<()> {
+    let colors = std::array::from_fn::<_, 4, _>(|i| {
+        let i = i as u8;
+        button_color((nibble >> i) & 1 == 0, relay_state.is_on(relay_offset + i))
+    });
+    strip
+        .set_neopixel_colors(&colors)
+        .and_then(|_| strip.sync_neopixel())
+        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
+}
+
+fn set_uniform(strip: &mut NeoKeys<'_>, color: NeoKey1x4Color) -> anyhow::Result<()> {
+    strip
+        .set_neopixel_colors(&[color, color, color, color])
+        .and_then(|_| strip.sync_neopixel())
+        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
+}
+
 pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
@@ -85,15 +115,8 @@ pub fn main() -> anyhow::Result<()> {
     info!("Seesaw initialized");
 
     // Start blue — scanning is about to begin
-    neokeys1
-        .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
-        .and_then(|_| neokeys1.sync_neopixel())
-        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
-
-    neokeys2
-        .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
-        .and_then(|_| neokeys1.sync_neopixel())
-        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
+    set_uniform(&mut neokeys1, BLUE)?;
+    set_uniform(&mut neokeys2, BLUE)?;
 
     let nvs = EspDefaultNvsPartition::take()?;
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
@@ -135,14 +158,16 @@ pub fn main() -> anyhow::Result<()> {
     let mut last_status = None;
     let mut last_relay_state: Option<RelayState> = None;
     // Previous key bitmask for edge detection (0 = pressed, active low).
-    // Start all-high (no keys pressed).
-    let mut last_keys: u8 = 0xF;
+    // Start all-high (no keys pressed). Low nibble = strip 0, high nibble = strip 1.
+    let mut last_keys: u8 = 0xFF;
 
     loop {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
-        // Fall back to last known state on I2C error.
-        let keys = neokeys1.keys().unwrap_or(last_keys);
+
+        let k0 = neokeys1.keys().unwrap_or(last_keys & 0x0F) & 0x0F;
+        let k1 = neokeys2.keys().unwrap_or(last_keys >> 4) & 0x0F;
+        let keys = k0 | (k1 << 4);
 
         // Update LEDs when connection status, relay state, or key state changes.
         let leds_stale = Some(status) != last_status
@@ -153,41 +178,8 @@ pub fn main() -> anyhow::Result<()> {
             info!("Connection status: {status:?}  Relay state: {current_relay_state:?}");
             match status {
                 ConnectionStatus::Connected => {
-                    // Pressed buttons (bit = 0) show blue; others reflect relay state.
-                    let colors = [
-                        if (keys & 1) == 0 {
-                            BLUE
-                        } else if current_relay_state.is_on(0) {
-                            WHITE
-                        } else {
-                            DIM_WHITE
-                        },
-                        if (keys >> 1) & 1 == 0 {
-                            BLUE
-                        } else if current_relay_state.is_on(1) {
-                            WHITE
-                        } else {
-                            DIM_WHITE
-                        },
-                        if (keys >> 2) & 1 == 0 {
-                            BLUE
-                        } else if current_relay_state.is_on(2) {
-                            WHITE
-                        } else {
-                            DIM_WHITE
-                        },
-                        if (keys >> 3) & 1 == 0 {
-                            BLUE
-                        } else if current_relay_state.is_on(3) {
-                            WHITE
-                        } else {
-                            DIM_WHITE
-                        },
-                    ];
-                    neokeys1
-                        .set_neopixel_colors(&colors)
-                        .and_then(|_| neokeys1.sync_neopixel())
-                        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
+                    update_strip(&mut neokeys1, k0, current_relay_state, 0)?;
+                    update_strip(&mut neokeys2, k1, current_relay_state, 4)?;
                 }
                 _ => {
                     let color = match status {
@@ -196,10 +188,8 @@ pub fn main() -> anyhow::Result<()> {
                         ConnectionStatus::Error => ORANGE,
                         ConnectionStatus::Connected => unreachable!(),
                     };
-                    neokeys1
-                        .set_neopixel_colors(&[color, color, color, color])
-                        .and_then(|_| neokeys1.sync_neopixel())
-                        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
+                    set_uniform(&mut neokeys1, color)?;
+                    set_uniform(&mut neokeys2, color)?;
                 }
             }
             last_status = Some(status);
@@ -209,8 +199,8 @@ pub fn main() -> anyhow::Result<()> {
         // Button handling — detect falling edge (bit 1 → 0 = key just pressed).
         match status {
             ConnectionStatus::Connected => {
-                for i in 0..4u8 {
-                    let bit = 1u8 << i;
+                for i in 0..8u8 {
+                    let bit = 1u8 << (i & 3) << (if i < 4 { 0 } else { 4 });
                     if (last_keys & bit) != 0 && (keys & bit) == 0 {
                         info!("Button {i} pressed — toggling relay {i}");
                         client.write_characteristic(&ButtonEvent { relay: i }.to_bytes())?;
@@ -220,7 +210,7 @@ pub fn main() -> anyhow::Result<()> {
             ConnectionStatus::ScanFailed
             | ConnectionStatus::Disconnected
             | ConnectionStatus::Error => {
-                if last_keys & 0xF == 0xF && keys & 0xF != 0xF {
+                if last_keys == 0xFF && keys != 0xFF {
                     info!("Button pressed — restarting scan");
                     client.connect()?;
                 }
