@@ -17,6 +17,9 @@ use esp_idf_svc::{
 use log::*;
 use std::sync::{Arc, Condvar, Mutex};
 
+type RecvHandler = Arc<dyn Fn(&[u8]) + Send + Sync>;
+type SubscribedHandler = Arc<dyn Fn() + Send + Sync>;
+
 const MAX_CONNECTIONS: usize = 2;
 
 type ExBtDriver = BtDriver<'static, Ble>;
@@ -41,6 +44,8 @@ struct State {
     recv_handle: Option<Handle>,
     response: GattResponse,
     service_handle: Option<Handle>,
+    on_recv: Option<RecvHandler>,
+    on_subscribed: Option<SubscribedHandler>,
 }
 
 #[derive(Clone)]
@@ -117,34 +122,16 @@ impl OmnibenchServer {
         Ok(())
     }
 
-    /// Sample callback where the user code can handle a newly-subscribed client
-    ///
-    /// If the user code just broadcasts the _same_ indication to all subscribed
-    /// clients, this callback might not be necessary.
-    fn on_subscribed(&self, addr: BdAddr) {
-        // Put your custom code here or leave empty
-        // `indicate()` will anyway send to all connected clients
-        warn!("Client {addr} subscribed - put your custom logic here");
+    /// Register a callback to be invoked when data is written to the recv
+    /// characteristic.
+    pub fn set_recv_callback(&self, handler: impl Fn(&[u8]) + Send + Sync + 'static) {
+        self.state.lock().unwrap().on_recv = Some(Arc::new(handler));
     }
 
-    /// Sample callback where the user code can handle an unsubscribed client
-    ///
-    /// If the user code just broadcasts the _same_ indication to all subscribed
-    /// clients, this callback might not be necessary.
-    fn on_unsubscribed(&self, addr: BdAddr) {
-        // Put your custom code here
-        // `indicate()` will anyway send to all connected clients
-        warn!("Client {addr} unsubscribed - put your custom logic here");
-    }
-
-    /// Sample callback where the user code can handle received data
-    /// For demo purposes, the data is just logged.
-    fn on_recv(&self, addr: BdAddr, data: &[u8], offset: u16, mtu: Option<u16>) {
-        // Put your custom code here
-        warn!(
-            "Received data from {addr}: {data:?}, offset: {offset}, mtu: {mtu:?} - put your \
-             custom logic here"
-        );
+    /// Register a callback to be invoked when a client subscribes to
+    /// indications.
+    pub fn set_subscribed_callback(&self, handler: impl Fn() + Send + Sync + 'static) {
+        self.state.lock().unwrap().on_subscribed = Some(Arc::new(handler));
     }
 
     /// The main event handler for the GAP events
@@ -213,17 +200,15 @@ impl OmnibenchServer {
             }
             GattsEvent::Write {
                 conn_id,
-                trans_id,
-                addr,
                 handle,
-                offset,
-                need_rsp,
                 is_prep,
+                need_rsp,
+                offset,
+                trans_id,
                 value,
+                ..
             } => {
-                let handled = self.recv(
-                    gatt_if, conn_id, trans_id, addr, handle, offset, need_rsp, is_prep, value,
-                )?;
+                let handled = self.recv(conn_id, handle, offset, value)?;
 
                 if handled {
                     self.send_write_response(
@@ -474,49 +459,59 @@ impl OmnibenchServer {
     #[allow(clippy::too_many_arguments)]
     fn recv(
         &self,
-        _gatt_if: GattInterface,
         conn_id: ConnectionId,
-        _trans_id: TransferId,
-        addr: BdAddr,
         handle: Handle,
         offset: u16,
-        _need_rsp: bool,
-        _is_prep: bool,
         value: &[u8],
     ) -> Result<bool, EspError> {
-        let mut state = self.state.lock().unwrap();
+        // Extract any handlers while holding the lock, then call them after releasing
+        // it to prevent deadlock if the handler calls back into the server (e.g.
+        // indicate).
+        let (subscribed_handler, recv_handler) = {
+            let mut state = self.state.lock().unwrap();
 
-        let recv_handle = state.recv_handle;
-        let ind_cccd_handle = state.ind_cccd_handle;
+            let recv_handle = state.recv_handle;
+            let ind_cccd_handle = state.ind_cccd_handle;
 
-        let Some(conn) = state
-            .connections
-            .iter_mut()
-            .find(|conn| conn.conn_id == conn_id)
-        else {
-            return Ok(false);
-        };
+            let Some(conn) = state
+                .connections
+                .iter_mut()
+                .find(|conn| conn.conn_id == conn_id)
+            else {
+                return Ok(false);
+            };
 
-        if Some(handle) == ind_cccd_handle {
-            // Subscribe or unsubscribe to our indication characteristic
-
-            if offset == 0 && value.len() == 2 {
-                let value = u16::from_le_bytes([value[0], value[1]]);
-                if value == 0x02 {
-                    if !conn.subscribed {
-                        conn.subscribed = true;
-                        self.on_subscribed(conn.peer);
+            if Some(handle) == ind_cccd_handle {
+                if offset == 0 && value.len() == 2 {
+                    let cccd_value = u16::from_le_bytes([value[0], value[1]]);
+                    if cccd_value == 0x02 {
+                        if !conn.subscribed {
+                            conn.subscribed = true;
+                            (state.on_subscribed.clone(), None)
+                        } else {
+                            (None, None)
+                        }
+                    } else if conn.subscribed {
+                        conn.subscribed = false;
+                        (None, None)
+                    } else {
+                        (None, None)
                     }
-                } else if conn.subscribed {
-                    conn.subscribed = false;
-                    self.on_unsubscribed(conn.peer);
+                } else {
+                    (None, None)
                 }
+            } else if Some(handle) == recv_handle {
+                (None, state.on_recv.clone())
+            } else {
+                return Ok(false);
             }
-        } else if Some(handle) == recv_handle {
-            // Receive data on the recv characteristic
-            self.on_recv(addr, value, offset, conn.mtu);
-        } else {
-            return Ok(false);
+        }; // lock released here
+
+        if let Some(handler) = subscribed_handler {
+            handler();
+        }
+        if let Some(handler) = recv_handler {
+            handler(value);
         }
 
         Ok(true)
