@@ -1,14 +1,21 @@
+use adafruit_seesaw::{SeesawDriver, devices::NeoTrellis, prelude::*};
 use esp_idf_svc::{
     bt::{
         BtDriver,
         ble::{gap::EspBleGap, gatt::server::EspGatts},
     },
-    hal::peripherals::Peripherals,
+    hal::{
+        delay::Delay,
+        gpio::PinDriver,
+        i2c::{I2cConfig, I2cDriver},
+        peripherals::Peripherals,
+        units::FromValueType,
+    },
     nvs::EspDefaultNvsPartition,
 };
 use log::*;
 use omnibench::{APP_ID, server::OmnibenchServer};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::hal::sys::link_patches();
@@ -16,8 +23,33 @@ fn main() -> anyhow::Result<()> {
 
     let peripherals = Peripherals::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
-
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
+
+    // I2C
+    let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
+    i2c_power.set_low()?;
+
+    info!("Initializing I2C and Seesaw");
+    let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
+    let config = I2cConfig::new().baudrate(400u32.kHz().into());
+    let delay = Delay::new_default();
+    let i2c = I2cDriver::<'static>::new(peripherals.i2c0, sda, scl, &config)?;
+    i2c_power.set_high()?;
+    std::thread::sleep(Duration::from_millis(50));
+    let seesaw = SeesawDriver::new(delay, i2c);
+
+    let mut trellis = NeoTrellis::new_with_default_addr(seesaw)
+        .init()
+        .expect("Failed to start NeoTrellis");
+
+    // Listen for key presses
+    for x in 0..trellis.num_cols() {
+        for y in 0..trellis.num_rows() {
+            trellis
+                .set_key_event_triggers(x, y, &[KeyEventType::Pressed], true)
+                .expect("Failed to set key event triggers");
+        }
+    }
 
     let server = OmnibenchServer::new(
         Arc::new(EspBleGap::new(bt.clone())?),
