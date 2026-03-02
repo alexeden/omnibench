@@ -24,8 +24,12 @@ use log::*;
 use omnibench::{
     APP_ID,
     client::{ConnectionStatus, OmnibenchClient},
+    protocol::{ButtonEvent, RelayState},
 };
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 const RED: NeoKey1x4Color = NeoKey1x4Color { r: 255, g: 0, b: 0 };
 const BLUE: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 255 };
@@ -33,6 +37,11 @@ const WHITE: NeoKey1x4Color = NeoKey1x4Color {
     r: 255,
     g: 255,
     b: 255,
+};
+const DIM_WHITE: NeoKey1x4Color = NeoKey1x4Color {
+    r: 15,
+    g: 15,
+    b: 15,
 };
 const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
     r: 255,
@@ -78,6 +87,8 @@ pub fn main() -> anyhow::Result<()> {
     );
     info!("BLE Gap and Gattc initialized");
 
+    let relay_state = Arc::new(Mutex::new(RelayState::default()));
+
     let gap_client = client.clone();
     client.gap.subscribe(move |event| {
         if let Err(e) = gap_client.on_gap_event(event) {
@@ -92,54 +103,107 @@ pub fn main() -> anyhow::Result<()> {
         }
     })?;
 
+    let relay_state_cb = relay_state.clone();
+    client.set_notify_callback(move |bytes| {
+        if let Some(rs) = RelayState::from_bytes(bytes) {
+            *relay_state_cb.lock().unwrap() = rs;
+        }
+    });
+
     info!("Subscriptions initialized; registering app and starting scan");
     client.gattc.register_app(APP_ID)?;
     gatt::set_local_mtu(500)?;
 
-    // Main loop: update LEDs from connection status, handle button presses for
-    // rescan.
+    // Main loop: update LEDs from connection status and relay state; handle
+    // button presses for both relay toggling (connected) and rescan (disconnected).
     let mut last_status = None;
-    // Tracks whether a button was already pressed this gesture, to avoid
-    // re-triggering.
-    let mut rescan_pending = false;
+    let mut last_relay_state: Option<RelayState> = None;
+    // Previous key bitmask for edge detection (0 = pressed, active low).
+    // Start all-high (no keys pressed).
+    let mut last_keys: u8 = 0xF;
 
     loop {
         let status = client.status();
+        let current_relay_state = *relay_state.lock().unwrap();
 
-        // Update LEDs only when status changes.
-        if Some(status) != last_status {
-            let color = match status {
-                ConnectionStatus::Scanning => BLUE,
-                ConnectionStatus::Connected => WHITE,
-                ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected => RED,
-                ConnectionStatus::Error => ORANGE,
-            };
-            info!("Connection status: {status:?}");
-            neokeys
-                .set_neopixel_colors(&[color, color, color, color])
-                .and_then(|_| neokeys.sync_neopixel())
-                .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
-            last_status = Some(status);
-        }
+        // Update LEDs when connection status or relay state changes.
+        let leds_stale = Some(status) != last_status
+            || (status == ConnectionStatus::Connected
+                && Some(current_relay_state) != last_relay_state);
 
-        // When not connected, any button press restarts the scan.
-        if matches!(
-            status,
-            ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected | ConnectionStatus::Error
-        ) {
-            // keys() returns a bitmask; 0 = pressed (active low), 4 bits for 4 keys.
-            if let Ok(keys) = neokeys.keys() {
-                let any_pressed = keys & 0xF != 0xF;
-                if any_pressed && !rescan_pending {
-                    rescan_pending = true;
-                    info!("Button pressed — restarting scan");
-                    client.connect()?;
-                } else if !any_pressed {
-                    rescan_pending = false;
+        if leds_stale {
+            info!("Connection status: {status:?}  Relay state: {current_relay_state:?}");
+            match status {
+                ConnectionStatus::Connected => {
+                    let colors = [
+                        if current_relay_state.is_on(0) {
+                            WHITE
+                        } else {
+                            DIM_WHITE
+                        },
+                        if current_relay_state.is_on(1) {
+                            WHITE
+                        } else {
+                            DIM_WHITE
+                        },
+                        if current_relay_state.is_on(2) {
+                            WHITE
+                        } else {
+                            DIM_WHITE
+                        },
+                        if current_relay_state.is_on(3) {
+                            WHITE
+                        } else {
+                            DIM_WHITE
+                        },
+                    ];
+                    neokeys
+                        .set_neopixel_colors(&colors)
+                        .and_then(|_| neokeys.sync_neopixel())
+                        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
+                }
+                _ => {
+                    let color = match status {
+                        ConnectionStatus::Scanning => BLUE,
+                        ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected => RED,
+                        ConnectionStatus::Error => ORANGE,
+                        ConnectionStatus::Connected => unreachable!(),
+                    };
+                    neokeys
+                        .set_neopixel_colors(&[color, color, color, color])
+                        .and_then(|_| neokeys.sync_neopixel())
+                        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
                 }
             }
-        } else {
-            rescan_pending = false;
+            last_status = Some(status);
+            last_relay_state = Some(current_relay_state);
+        }
+
+        // Button handling — detect falling edge (bit 1 → 0 = key just pressed).
+        if let Ok(keys) = neokeys.keys() {
+            match status {
+                ConnectionStatus::Connected => {
+                    // Each button sends a toggle event for its relay.
+                    for i in 0..4u8 {
+                        let bit = 1u8 << i;
+                        if (last_keys & bit) != 0 && (keys & bit) == 0 {
+                            info!("Button {i} pressed — toggling relay {i}");
+                            client.write_characteristic(&ButtonEvent { relay: i }.to_bytes())?;
+                        }
+                    }
+                }
+                ConnectionStatus::ScanFailed
+                | ConnectionStatus::Disconnected
+                | ConnectionStatus::Error => {
+                    // Any button press restarts the scan.
+                    if last_keys & 0xF == 0xF && keys & 0xF != 0xF {
+                        info!("Button pressed — restarting scan");
+                        client.connect()?;
+                    }
+                }
+                ConnectionStatus::Scanning => {}
+            }
+            last_keys = keys;
         }
 
         std::thread::sleep(Duration::from_millis(100));

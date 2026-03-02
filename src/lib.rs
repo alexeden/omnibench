@@ -1,5 +1,6 @@
 use esp_idf_svc::bt::BtUuid;
 pub mod client;
+pub mod protocol;
 pub mod server;
 
 pub const APP_ID: u16 = 0;

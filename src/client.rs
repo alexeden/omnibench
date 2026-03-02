@@ -42,6 +42,7 @@ pub enum ConnectionStatus {
 type ExBtDriver = BtDriver<'static, Ble>;
 type ExEspBleGap = Arc<EspBleGap<'static, Ble, Arc<ExBtDriver>>>;
 type ExEspGattc = Arc<EspGattc<'static, Ble, Arc<ExBtDriver>>>;
+type NotifyHandler = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
 #[derive(Default)]
 struct State {
@@ -54,6 +55,7 @@ struct State {
     service_start_end_handle: Option<(Handle, Handle)>,
     write_char_handle: Option<Handle>,
     status: ConnectionStatus,
+    on_notify: Option<NotifyHandler>,
 }
 
 #[derive(Clone)]
@@ -75,6 +77,12 @@ impl OmnibenchClient {
     /// Returns the current connection status, suitable for driving UI feedback.
     pub fn status(&self) -> ConnectionStatus {
         self.state.lock().unwrap().status
+    }
+
+    /// Registers a callback invoked with the raw payload whenever the server
+    /// sends an indication.  Parse the bytes into your domain type here.
+    pub fn set_notify_callback(&self, handler: impl Fn(&[u8]) + Send + Sync + 'static) {
+        self.state.lock().unwrap().on_notify = Some(Arc::new(handler));
     }
 
     /// Connect to the bt_gatt_server.
@@ -384,45 +392,80 @@ impl OmnibenchClient {
                 };
             }
             GattcEvent::RegisterNotify { handle, .. } => {
-                info!("GattcEvent::RegisterNotify: notification register successfully");
-                let mut state = self.state.lock().unwrap();
-                if let Some(conn_id) = state.conn_id {
-                    let count = self
-                        .gattc
-                        .get_attr_count(gattc_if, conn_id, DbAttrType::Descriptor { handle })
-                        .map_err(|status| {
-                            error!("Get attr count for ind char error {status:?}");
-                            EspError::from_infallible::<ESP_FAIL>()
-                        })?;
+                info!("GattcEvent::RegisterNotify: notification registered successfully");
 
-                    if count > 0 {
-                        let mut descrs = [DescriptorElement::new(); 1];
+                // Extract conn_id while holding the lock briefly, then release it
+                // before any further BLE API calls.
+                let conn_id = match self.state.lock().unwrap().conn_id {
+                    Some(id) => id,
+                    None => return Ok(()),
+                };
 
-                        match self.gattc.get_descriptor_by_char_handle(
-                            gattc_if,
-                            conn_id,
-                            handle,
-                            &IND_DESCRIPTOR_UUID,
-                            &mut descrs,
-                        ) {
-                            Ok(descrs_count) => {
-                                if descrs_count > 0 {
-                                    if let Some(descr) = descrs.first()
-                                        && descr.uuid() == IND_DESCRIPTOR_UUID
-                                    {
-                                        state.ind_descr_handle = Some(descr.handle());
-                                    }
-                                } else {
-                                    error!("No ind descriptor found");
-                                }
-                            }
-                            Err(status) => {
-                                error!("Get ind char descriptors error {status:?}");
-                            }
-                        }
-                    } else {
-                        error!("No ind char descriptors found");
+                let count = self
+                    .gattc
+                    .get_attr_count(gattc_if, conn_id, DbAttrType::Descriptor { handle })
+                    .map_err(|status| {
+                        error!("Get attr count for ind char error {status:?}");
+                        EspError::from_infallible::<ESP_FAIL>()
+                    })?;
+
+                if count == 0 {
+                    error!("No ind char descriptors found");
+                    return Ok(());
+                }
+
+                let mut descrs = [DescriptorElement::new(); 1];
+                let n = match self.gattc.get_descriptor_by_char_handle(
+                    gattc_if,
+                    conn_id,
+                    handle,
+                    &IND_DESCRIPTOR_UUID,
+                    &mut descrs,
+                ) {
+                    Ok(n) => n,
+                    Err(status) => {
+                        error!("Get ind char descriptors error {status:?}");
+                        return Ok(());
                     }
+                };
+
+                if n == 0 {
+                    error!("No ind descriptor found");
+                    return Ok(());
+                }
+
+                let Some(descr) = descrs.first().filter(|d| d.uuid() == IND_DESCRIPTOR_UUID) else {
+                    error!("No ind descriptor found");
+                    return Ok(());
+                };
+
+                let descr_handle = descr.handle();
+                self.state.lock().unwrap().ind_descr_handle = Some(descr_handle);
+
+                // Write CCCD = 0x0002 to enable indications from the server.
+                info!("Enabling indications");
+                self.gattc.write_descriptor(
+                    gattc_if,
+                    conn_id,
+                    descr_handle,
+                    &2u16.to_le_bytes(),
+                    GattWriteType::RequireResponse,
+                    GattAuthReq::None,
+                )?;
+            }
+            GattcEvent::Notify { handle, value, .. } => {
+                // Clone the Arc while holding the lock (cheap), then release
+                // before invoking so the handler can safely call back into the client.
+                let handler = {
+                    let state = self.state.lock().unwrap();
+                    if Some(handle) == state.ind_char_handle {
+                        state.on_notify.clone()
+                    } else {
+                        None
+                    }
+                };
+                if let Some(handler) = handler {
+                    handler(value);
                 }
             }
             GattcEvent::Disconnected { addr, reason, .. } => {
