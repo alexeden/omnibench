@@ -156,6 +156,6 @@ fn main() -> anyhow::Result<()> {
             last_connected = Some(connected);
         }
 
-        // std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
