@@ -166,53 +166,40 @@ impl OmnibenchServer {
         event: GattsEvent,
     ) -> Result<(), EspError> {
         info!("Got event: {event:?}");
+        if let Some(status) = status_from_gatts_event(&event)
+            && !matches!(status, GattStatus::Ok)
+        {
+            warn!("Got status: {status:?}");
+            return Err(EspError::from_infallible::<ESP_FAIL>());
+        }
 
         match event {
-            GattsEvent::ServiceRegistered { status, app_id } => {
-                self.check_gatt_status(status)?;
-                if crate::APP_ID == app_id {
-                    self.create_service(gatt_if)?;
-                }
+            GattsEvent::ServiceRegistered { app_id, .. } if crate::APP_ID == app_id => {
+                self.create_service(gatt_if)?;
             }
-            GattsEvent::ServiceCreated {
-                status,
-                service_handle,
-                ..
-            } => {
-                self.check_gatt_status(status)?;
+            GattsEvent::ServiceCreated { service_handle, .. } => {
                 self.configure_and_start_service(service_handle)?;
             }
             GattsEvent::CharacteristicAdded {
-                status,
                 attr_handle,
                 service_handle,
                 char_uuid,
+                ..
             } => {
-                self.check_gatt_status(status)?;
                 self.register_characteristic(service_handle, attr_handle, char_uuid)?;
             }
             GattsEvent::DescriptorAdded {
-                status,
                 attr_handle,
                 service_handle,
                 descr_uuid,
-            } => {
-                self.check_gatt_status(status)?;
-                self.register_cccd_descriptor(service_handle, attr_handle, descr_uuid)?;
-            }
-            GattsEvent::ServiceDeleted {
-                status,
-                service_handle,
-            } => {
-                self.check_gatt_status(status)?;
-                self.delete_service(service_handle)?;
-            }
-            GattsEvent::ServiceUnregistered {
-                status,
-                service_handle,
                 ..
             } => {
-                self.check_gatt_status(status)?;
+                self.register_cccd_descriptor(service_handle, attr_handle, descr_uuid)?;
+            }
+            GattsEvent::ServiceDeleted { service_handle, .. } => {
+                self.delete_service(service_handle)?;
+            }
+            GattsEvent::ServiceUnregistered { service_handle, .. } => {
                 self.unregister_service(service_handle)?;
             }
             GattsEvent::Mtu { conn_id, mtu } => {
@@ -244,8 +231,7 @@ impl OmnibenchServer {
                     )?;
                 }
             }
-            GattsEvent::Confirm { status, .. } => {
-                self.check_gatt_status(status)?;
+            GattsEvent::Confirm { .. } => {
                 self.confirm_indication()?;
             }
             _ => (),
@@ -374,16 +360,13 @@ impl OmnibenchServer {
     ) -> Result<(), EspError> {
         let indicate_char = {
             let mut state = self.state.lock().unwrap();
-
             if state.service_handle != Some(service_handle) {
                 false
             } else if char_uuid == RECV_CHARACTERISTIC_UUID {
                 state.recv_handle = Some(attr_handle);
-
                 false
             } else if char_uuid == IND_CHARACTERISTIC_UUID {
                 state.ind_handle = Some(attr_handle);
-
                 true
             } else {
                 false
@@ -413,13 +396,11 @@ impl OmnibenchServer {
         descr_uuid: BtUuid,
     ) -> Result<(), EspError> {
         let mut state = self.state.lock().unwrap();
-
         if descr_uuid == BtUuid::uuid16(0x2902) // CCCD UUID
             && state.service_handle == Some(service_handle)
         {
             state.ind_cccd_handle = Some(attr_handle);
         }
-
         Ok(())
     }
 
@@ -428,7 +409,6 @@ impl OmnibenchServer {
     /// connection MTU
     fn register_conn_mtu(&self, conn_id: ConnectionId, mtu: u16) -> Result<(), EspError> {
         let mut state = self.state.lock().unwrap();
-
         if let Some(conn) = state
             .connections
             .iter_mut()
@@ -446,7 +426,6 @@ impl OmnibenchServer {
     fn create_conn(&self, conn_id: ConnectionId, addr: BdAddr) -> Result<(), EspError> {
         let added = {
             let mut state = self.state.lock().unwrap();
-
             if state.connections.len() < MAX_CONNECTIONS {
                 state
                     .connections
@@ -467,11 +446,9 @@ impl OmnibenchServer {
                 false
             }
         };
-
         if added {
             self.gap.set_conn_params_conf(addr, 10, 20, 0, 400)?;
         }
-
         Ok(())
     }
 
@@ -480,18 +457,15 @@ impl OmnibenchServer {
     /// disconnected peer
     fn delete_conn(&self, addr: BdAddr) -> Result<(), EspError> {
         let mut state = self.state.lock().unwrap();
-
         if let Some(index) = state
             .connections
             .iter()
             .position(|Connection { peer, .. }| *peer == addr)
         {
             state.connections.swap_remove(index);
-
             // restart advertising so we can get a new connection
             self.set_adv_conf()?;
         }
-
         Ok(())
     }
 
@@ -540,7 +514,6 @@ impl OmnibenchServer {
             }
         } else if Some(handle) == recv_handle {
             // Receive data on the recv characteristic
-
             self.on_recv(addr, value, offset, conn.mtu);
         } else {
             return Ok(false);
@@ -569,10 +542,8 @@ impl OmnibenchServer {
         if !need_rsp {
             return Ok(());
         }
-
         if is_prep {
             let mut state = self.state.lock().unwrap();
-
             state
                 .response
                 .attr_handle(handle)
@@ -607,10 +578,8 @@ impl OmnibenchServer {
             // an indication we did not send.
             unreachable!();
         }
-
         state.ind_confirmed = None; // So that the main loop can send the next indication
         self.condvar.notify_all();
-
         Ok(())
     }
 
@@ -628,13 +597,26 @@ impl OmnibenchServer {
             Ok(())
         }
     }
+}
 
-    fn check_gatt_status(&self, status: GattStatus) -> Result<(), EspError> {
-        if !matches!(status, GattStatus::Ok) {
-            warn!("Got status: {status:?}");
-            Err(EspError::from_infallible::<ESP_FAIL>())
-        } else {
-            Ok(())
-        }
+fn status_from_gatts_event(event: &GattsEvent) -> Option<GattStatus> {
+    match event {
+        GattsEvent::AttributeTableCreated { status, .. }
+        | GattsEvent::AttributeValueModified { status, .. }
+        | GattsEvent::CharacteristicAdded { status, .. }
+        | GattsEvent::Close { status, .. }
+        | GattsEvent::Confirm { status, .. }
+        | GattsEvent::DescriptorAdded { status, .. }
+        | GattsEvent::IncludedServiceAdded { status, .. }
+        | GattsEvent::Open { status, .. }
+        | GattsEvent::ResponseComplete { status, .. }
+        | GattsEvent::ServiceChanged { status, .. }
+        | GattsEvent::ServiceCreated { status, .. }
+        | GattsEvent::ServiceDeleted { status, .. }
+        | GattsEvent::ServiceRegistered { status, .. }
+        | GattsEvent::ServiceStarted { status, .. }
+        | GattsEvent::ServiceStopped { status, .. }
+        | GattsEvent::ServiceUnregistered { status, .. } => Some(*status),
+        _ => None,
     }
 }

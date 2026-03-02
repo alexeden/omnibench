@@ -125,33 +125,44 @@ pub fn main() -> anyhow::Result<()> {
     loop {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
+        // Fall back to last known state on I2C error.
+        let keys = neokeys.keys().unwrap_or(last_keys);
 
-        // Update LEDs when connection status or relay state changes.
+        // Update LEDs when connection status, relay state, or key state changes.
         let leds_stale = Some(status) != last_status
             || (status == ConnectionStatus::Connected
-                && Some(current_relay_state) != last_relay_state);
+                && (Some(current_relay_state) != last_relay_state || keys != last_keys));
 
         if leds_stale {
             info!("Connection status: {status:?}  Relay state: {current_relay_state:?}");
             match status {
                 ConnectionStatus::Connected => {
+                    // Pressed buttons (bit = 0) show blue; others reflect relay state.
                     let colors = [
-                        if current_relay_state.is_on(0) {
+                        if (keys & 1) == 0 {
+                            BLUE
+                        } else if current_relay_state.is_on(0) {
                             WHITE
                         } else {
                             DIM_WHITE
                         },
-                        if current_relay_state.is_on(1) {
+                        if (keys >> 1) & 1 == 0 {
+                            BLUE
+                        } else if current_relay_state.is_on(1) {
                             WHITE
                         } else {
                             DIM_WHITE
                         },
-                        if current_relay_state.is_on(2) {
+                        if (keys >> 2) & 1 == 0 {
+                            BLUE
+                        } else if current_relay_state.is_on(2) {
                             WHITE
                         } else {
                             DIM_WHITE
                         },
-                        if current_relay_state.is_on(3) {
+                        if (keys >> 3) & 1 == 0 {
+                            BLUE
+                        } else if current_relay_state.is_on(3) {
                             WHITE
                         } else {
                             DIM_WHITE
@@ -180,32 +191,28 @@ pub fn main() -> anyhow::Result<()> {
         }
 
         // Button handling — detect falling edge (bit 1 → 0 = key just pressed).
-        if let Ok(keys) = neokeys.keys() {
-            match status {
-                ConnectionStatus::Connected => {
-                    // Each button sends a toggle event for its relay.
-                    for i in 0..4u8 {
-                        let bit = 1u8 << i;
-                        if (last_keys & bit) != 0 && (keys & bit) == 0 {
-                            info!("Button {i} pressed — toggling relay {i}");
-                            client.write_characteristic(&ButtonEvent { relay: i }.to_bytes())?;
-                        }
+        match status {
+            ConnectionStatus::Connected => {
+                for i in 0..4u8 {
+                    let bit = 1u8 << i;
+                    if (last_keys & bit) != 0 && (keys & bit) == 0 {
+                        info!("Button {i} pressed — toggling relay {i}");
+                        client.write_characteristic(&ButtonEvent { relay: i }.to_bytes())?;
                     }
                 }
-                ConnectionStatus::ScanFailed
-                | ConnectionStatus::Disconnected
-                | ConnectionStatus::Error => {
-                    // Any button press restarts the scan.
-                    if last_keys & 0xF == 0xF && keys & 0xF != 0xF {
-                        info!("Button pressed — restarting scan");
-                        client.connect()?;
-                    }
-                }
-                ConnectionStatus::Scanning => {}
             }
-            last_keys = keys;
+            ConnectionStatus::ScanFailed
+            | ConnectionStatus::Disconnected
+            | ConnectionStatus::Error => {
+                if last_keys & 0xF == 0xF && keys & 0xF != 0xF {
+                    info!("Button pressed — restarting scan");
+                    client.connect()?;
+                }
+            }
+            ConnectionStatus::Scanning => {}
         }
+        last_keys = keys;
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
