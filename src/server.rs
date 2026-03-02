@@ -1,4 +1,4 @@
-use crate::{IND_CHARACTERISTIC_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME, SERVICE_UUID};
+use crate::{NOTIFY_CHARACTERISTIC_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME, SERVICE_UUID};
 use enumset::enum_set;
 use esp_idf_svc::{
     bt::{
@@ -15,7 +15,7 @@ use esp_idf_svc::{
     sys::{ESP_FAIL, EspError},
 };
 use log::*;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 
 type RecvHandler = Arc<dyn Fn(&[u8]) + Send + Sync>;
 type SubscribedHandler = Arc<dyn Fn() + Send + Sync>;
@@ -38,9 +38,8 @@ struct Connection {
 struct State {
     connections: heapless::Vec<Connection, MAX_CONNECTIONS>,
     gatt_if: Option<GattInterface>,
-    ind_cccd_handle: Option<Handle>,
-    ind_confirmed: Option<BdAddr>,
-    ind_handle: Option<Handle>,
+    notify_cccd_handle: Option<Handle>,
+    notify_handle: Option<Handle>,
     recv_handle: Option<Handle>,
     response: GattResponse,
     service_handle: Option<Handle>,
@@ -53,7 +52,6 @@ pub struct OmnibenchServer {
     pub gap: ExEspBleGap,
     pub gatts: ExEspGatts,
     state: Arc<Mutex<State>>,
-    condvar: Arc<Condvar>,
 }
 
 impl OmnibenchServer {
@@ -62,61 +60,27 @@ impl OmnibenchServer {
             gap,
             gatts,
             state: Arc::new(Mutex::new(Default::default())),
-            condvar: Arc::new(Condvar::new()),
         }
     }
 }
 
 impl OmnibenchServer {
-    /// Send (indicate) data to all peers that are currently
-    /// subscribed to our indication characteristic
+    /// Send (notify) data to all peers that are currently subscribed to our
+    /// notify characteristic.
     ///
-    /// Uses a Mutex + Condvar to wait until indication confirmation
-    /// is received.
-    ///
-    /// This complexity is necessary only when using indications.
-    /// Notifications do not really send confirmation and thus do not
-    /// need this synchronization.
-    pub fn indicate(&self, data: &[u8]) -> Result<(), EspError> {
-        for peer_index in 0..MAX_CONNECTIONS {
-            // Propagate this data to all clients which are connected
-            // and have subscribed to our indication characteristic
+    /// Notifications are fire-and-forget: the client does not send a
+    /// confirmation, so this method never blocks.
+    pub fn notify(&self, data: &[u8]) -> Result<(), EspError> {
+        let state = self.state.lock().unwrap();
 
-            let mut state = self.state.lock().unwrap();
+        let (Some(gatt_if), Some(notify_handle)) = (state.gatt_if, state.notify_handle) else {
+            return Ok(());
+        };
 
-            loop {
-                if state.connections.len() <= peer_index {
-                    // We've send to everybody who is connected
-                    break;
-                }
-
-                let Some(gatt_if) = state.gatt_if else {
-                    // We lost the gatt interface in the meantime
-                    break;
-                };
-
-                let Some(ind_handle) = state.ind_handle else {
-                    // We lost the indication handle in the meantime
-                    break;
-                };
-
-                if state.ind_confirmed.is_none() {
-                    let conn = &state.connections[peer_index];
-
-                    if conn.subscribed {
-                        self.gatts
-                            .indicate(gatt_if, conn.conn_id, ind_handle, data)?;
-
-                        state.ind_confirmed = Some(conn.peer);
-                        let conn = &state.connections[peer_index];
-
-                        info!("Indicated data to {}", conn.peer);
-                    }
-                    break;
-                } else {
-                    state = self.condvar.wait(state).unwrap();
-                }
-            }
+        for conn in state.connections.iter().filter(|c| c.subscribed) {
+            self.gatts
+                .notify(gatt_if, conn.conn_id, notify_handle, data)?;
+            info!("Notified {}", conn.peer);
         }
 
         Ok(())
@@ -216,9 +180,6 @@ impl OmnibenchServer {
                     )?;
                 }
             }
-            GattsEvent::Confirm { .. } => {
-                self.confirm_indication()?;
-            }
             _ => (),
         }
 
@@ -269,8 +230,8 @@ impl OmnibenchServer {
 
         if state.service_handle == Some(service_handle) {
             state.recv_handle = None;
-            state.ind_handle = None;
-            state.ind_cccd_handle = None;
+            state.notify_handle = None;
+            state.notify_cccd_handle = None;
         }
 
         Ok(())
@@ -321,10 +282,10 @@ impl OmnibenchServer {
         self.gatts.add_characteristic(
             service_handle,
             &GattCharacteristic {
-                uuid: IND_CHARACTERISTIC_UUID,
-                permissions: enum_set!(Permission::Write | Permission::Read),
-                properties: enum_set!(Property::Indicate),
-                max_len: 200, // Mac iondicate data
+                uuid: NOTIFY_CHARACTERISTIC_UUID,
+                permissions: enum_set!(Permission::Read),
+                properties: enum_set!(Property::Notify),
+                max_len: 200,
                 auto_rsp: AutoResponse::ByApp,
             },
             &[],
@@ -343,22 +304,22 @@ impl OmnibenchServer {
         attr_handle: Handle,
         char_uuid: BtUuid,
     ) -> Result<(), EspError> {
-        let indicate_char = {
+        let notify_char = {
             let mut state = self.state.lock().unwrap();
             if state.service_handle != Some(service_handle) {
                 false
             } else if char_uuid == RECV_CHARACTERISTIC_UUID {
                 state.recv_handle = Some(attr_handle);
                 false
-            } else if char_uuid == IND_CHARACTERISTIC_UUID {
-                state.ind_handle = Some(attr_handle);
+            } else if char_uuid == NOTIFY_CHARACTERISTIC_UUID {
+                state.notify_handle = Some(attr_handle);
                 true
             } else {
                 false
             }
         };
 
-        if indicate_char {
+        if notify_char {
             self.gatts.add_descriptor(
                 service_handle,
                 &GattDescriptor {
@@ -384,7 +345,7 @@ impl OmnibenchServer {
         if descr_uuid == BtUuid::uuid16(0x2902) // CCCD UUID
             && state.service_handle == Some(service_handle)
         {
-            state.ind_cccd_handle = Some(attr_handle);
+            state.notify_cccd_handle = Some(attr_handle);
         }
         Ok(())
     }
@@ -471,7 +432,7 @@ impl OmnibenchServer {
             let mut state = self.state.lock().unwrap();
 
             let recv_handle = state.recv_handle;
-            let ind_cccd_handle = state.ind_cccd_handle;
+            let notify_cccd_handle = state.notify_cccd_handle;
 
             let Some(conn) = state
                 .connections
@@ -481,10 +442,10 @@ impl OmnibenchServer {
                 return Ok(false);
             };
 
-            if Some(handle) == ind_cccd_handle {
+            if Some(handle) == notify_cccd_handle {
                 if offset == 0 && value.len() == 2 {
                     let cccd_value = u16::from_le_bytes([value[0], value[1]]);
-                    if cccd_value == 0x02 {
+                    if cccd_value == 0x01 {
                         if !conn.subscribed {
                             conn.subscribed = true;
                             (state.on_subscribed.clone(), None)
@@ -562,22 +523,6 @@ impl OmnibenchServer {
         Ok(())
     }
 
-    /// A helper method to handle an indication conrimation.
-    /// Basically, we need to notify the "indicate" method that sending the
-    /// indication was confirmed, so that it is free to send the next
-    /// indication.
-    fn confirm_indication(&self) -> Result<(), EspError> {
-        let mut state = self.state.lock().unwrap();
-        if state.ind_confirmed.is_none() {
-            // Should not happen: means we have received a confirmation for
-            // an indication we did not send.
-            unreachable!();
-        }
-        state.ind_confirmed = None; // So that the main loop can send the next indication
-        self.condvar.notify_all();
-        Ok(())
-    }
-
     pub fn check_esp_status(&self, status: Result<(), EspError>) {
         if let Err(e) = status {
             warn!("Got status: {e:?}");
@@ -600,7 +545,6 @@ fn status_from_gatts_event(event: &GattsEvent) -> Option<GattStatus> {
         | GattsEvent::AttributeValueModified { status, .. }
         | GattsEvent::CharacteristicAdded { status, .. }
         | GattsEvent::Close { status, .. }
-        | GattsEvent::Confirm { status, .. }
         | GattsEvent::DescriptorAdded { status, .. }
         | GattsEvent::IncludedServiceAdded { status, .. }
         | GattsEvent::Open { status, .. }

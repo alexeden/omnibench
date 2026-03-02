@@ -19,12 +19,12 @@ pub(crate) const SERVER_NAME: &str = "Omnibench";
 pub(crate) const RECV_CHARACTERISTIC_UUID: BtUuid =
     BtUuid::uuid128(0xb6fccb5087be44f3ae22f85485ea42c4);
 
-/// Our "indicate" characteristic - i.e. where clients can receive data if they
+/// Our "notify" characteristic - i.e. where clients can receive data if they
 /// subscribe to it
 ///
 /// UUID: 503de214-8682-46c4-828f-d59144da41be
-pub(crate) const IND_CHARACTERISTIC_UUID: BtUuid =
+pub(crate) const NOTIFY_CHARACTERISTIC_UUID: BtUuid =
     BtUuid::uuid128(0x503de214868246c4828fd59144da41be);
 
 /// Client Characteristic Configuration UUID
-pub(crate) const IND_DESCRIPTOR_UUID: BtUuid = BtUuid::uuid16(0x2902);
+pub(crate) const NOTIFY_DESCRIPTOR_UUID: BtUuid = BtUuid::uuid16(0x2902);

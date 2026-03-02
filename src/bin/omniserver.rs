@@ -114,7 +114,7 @@ fn main() -> anyhow::Result<()> {
                 *rs
             };
             info!("Relay {} toggled → state {:?}", event.relay, new_state);
-            server_recv.check_esp_status(server_recv.indicate(&new_state.to_bytes()));
+            server_recv.check_esp_status(server_recv.notify(&new_state.to_bytes()));
         }
     });
 
@@ -124,7 +124,7 @@ fn main() -> anyhow::Result<()> {
     server.set_subscribed_callback(move || {
         let state = *relay_state_sub.lock().unwrap();
         info!("Client subscribed — sending current relay state");
-        server_sub.check_esp_status(server_sub.indicate(&state.to_bytes()));
+        server_sub.check_esp_status(server_sub.notify(&state.to_bytes()));
     });
 
     // Main loop: update NeoTrellis LEDs whenever the relay state changes.
@@ -149,6 +149,6 @@ fn main() -> anyhow::Result<()> {
             last_relay_state = Some(current_state);
         }
 
-        std::thread::sleep(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(10));
     }
 }

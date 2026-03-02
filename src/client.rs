@@ -1,6 +1,6 @@
 use crate::{
-    APP_ID, IND_CHARACTERISTIC_UUID, IND_DESCRIPTOR_UUID, RECV_CHARACTERISTIC_UUID, SERVER_NAME,
-    SERVICE_UUID,
+    APP_ID, NOTIFY_CHARACTERISTIC_UUID, NOTIFY_DESCRIPTOR_UUID, RECV_CHARACTERISTIC_UUID,
+    SERVER_NAME, SERVICE_UUID,
 };
 use esp_idf_svc::{
     bt::{
@@ -133,10 +133,10 @@ impl OmnibenchClient {
 
         if let Some(ind_descr_handle) = state.ind_descr_handle {
             let value = if indicate {
-                info!("Subscribe indicate");
-                2_u16
+                info!("Subscribe notify");
+                1_u16
             } else {
-                info!("Unsubscribe indicate");
+                info!("Unsubscribe notify");
                 0_u16
             }
             .to_le_bytes();
@@ -336,12 +336,12 @@ impl OmnibenchClient {
                         conn_id,
                         start_handle,
                         end_handle,
-                        &IND_CHARACTERISTIC_UUID,
+                        &NOTIFY_CHARACTERISTIC_UUID,
                         &mut chars,
                     ) {
                         Ok(char_count) if char_count > 0 => {
                             if let Some(ind_char_elem) = chars.first() {
-                                if ind_char_elem.properties().contains(Property::Indicate) {
+                                if ind_char_elem.properties().contains(Property::Notify) {
                                     if let Some(remote_addr) = state.remote_addr {
                                         state.ind_char_handle = Some(ind_char_elem.handle());
                                         self.gattc.register_for_notify(
@@ -351,15 +351,15 @@ impl OmnibenchClient {
                                         )?;
                                     }
                                 } else {
-                                    error!("Ind characteristic does not have property Indicate");
+                                    error!("Notify characteristic does not have property Notify");
                                 }
                             }
                         }
                         Ok(_) => {
-                            error!("No ind characteristic found");
+                            error!("No notify characteristic found");
                         }
                         Err(status) => {
-                            error!("Get ind characteristic error {status:?}");
+                            error!("Get notify characteristic error {status:?}");
                         }
                     };
 
@@ -419,7 +419,7 @@ impl OmnibenchClient {
                     gattc_if,
                     conn_id,
                     handle,
-                    &IND_DESCRIPTOR_UUID,
+                    &NOTIFY_DESCRIPTOR_UUID,
                     &mut descrs,
                 ) {
                     Ok(n) => n,
@@ -434,7 +434,7 @@ impl OmnibenchClient {
                     return Ok(());
                 }
 
-                let Some(descr) = descrs.first().filter(|d| d.uuid() == IND_DESCRIPTOR_UUID) else {
+                let Some(descr) = descrs.first().filter(|d| d.uuid() == NOTIFY_DESCRIPTOR_UUID) else {
                     error!("No ind descriptor found");
                     return Ok(());
                 };
@@ -442,13 +442,13 @@ impl OmnibenchClient {
                 let descr_handle = descr.handle();
                 self.state.lock().unwrap().ind_descr_handle = Some(descr_handle);
 
-                // Write CCCD = 0x0002 to enable indications from the server.
-                info!("Enabling indications");
+                // Write CCCD = 0x0001 to enable notifications from the server.
+                info!("Enabling notifications");
                 self.gattc.write_descriptor(
                     gattc_if,
                     conn_id,
                     descr_handle,
-                    &2u16.to_le_bytes(),
+                    &1u16.to_le_bytes(),
                     GattWriteType::RequireResponse,
                     GattAuthReq::None,
                 )?;
