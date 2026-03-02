@@ -3,6 +3,7 @@ use adafruit_seesaw::{
     devices::{NeoKey1x4, NeoKey1x4Color},
     prelude::*,
 };
+use embedded_hal_bus::i2c::RefCellDevice;
 use esp_idf_svc::{
     bt::{
         BtDriver,
@@ -27,6 +28,7 @@ use omnibench::{
     protocol::{ButtonEvent, RelayState},
 };
 use std::{
+    cell::RefCell,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -63,20 +65,34 @@ pub fn main() -> anyhow::Result<()> {
     let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
     let delay = Delay::new_default();
-    let i2c = I2cDriver::<'static>::new(peripherals.i2c0, sda, scl, &config)?;
+    let i2c = RefCell::new(I2cDriver::<'static>::new(
+        peripherals.i2c0,
+        sda,
+        scl,
+        &config,
+    )?);
     i2c_power.set_high()?;
     std::thread::sleep(Duration::from_millis(50));
-    let seesaw = SeesawDriver::new(delay, i2c);
-    let mut neokeys = NeoKey1x4::new(0x33, seesaw)
+    let seesaw = SeesawDriver::new(delay, RefCellDevice::new(&i2c));
+    let mut neokeys1 = NeoKey1x4::new(0x33, seesaw)
+        .init()
+        .expect("Failed to start NeoKey1x4");
+    let seesaw = SeesawDriver::new(delay, RefCellDevice::new(&i2c));
+    let mut neokeys2 = NeoKey1x4::new_with_default_addr(seesaw)
         .init()
         .expect("Failed to start NeoKey1x4");
 
     info!("Seesaw initialized");
 
     // Start blue — scanning is about to begin
-    neokeys
+    neokeys1
         .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
-        .and_then(|_| neokeys.sync_neopixel())
+        .and_then(|_| neokeys1.sync_neopixel())
+        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
+
+    neokeys2
+        .set_neopixel_colors(&[BLUE, BLUE, BLUE, BLUE])
+        .and_then(|_| neokeys1.sync_neopixel())
         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
 
     let nvs = EspDefaultNvsPartition::take()?;
@@ -126,7 +142,7 @@ pub fn main() -> anyhow::Result<()> {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
         // Fall back to last known state on I2C error.
-        let keys = neokeys.keys().unwrap_or(last_keys);
+        let keys = neokeys1.keys().unwrap_or(last_keys);
 
         // Update LEDs when connection status, relay state, or key state changes.
         let leds_stale = Some(status) != last_status
@@ -168,9 +184,9 @@ pub fn main() -> anyhow::Result<()> {
                             DIM_WHITE
                         },
                     ];
-                    neokeys
+                    neokeys1
                         .set_neopixel_colors(&colors)
-                        .and_then(|_| neokeys.sync_neopixel())
+                        .and_then(|_| neokeys1.sync_neopixel())
                         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
                 }
                 _ => {
@@ -180,9 +196,9 @@ pub fn main() -> anyhow::Result<()> {
                         ConnectionStatus::Error => ORANGE,
                         ConnectionStatus::Connected => unreachable!(),
                     };
-                    neokeys
+                    neokeys1
                         .set_neopixel_colors(&[color, color, color, color])
-                        .and_then(|_| neokeys.sync_neopixel())
+                        .and_then(|_| neokeys1.sync_neopixel())
                         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))?;
                 }
             }
