@@ -1,4 +1,4 @@
-use embedded_hal::i2c::{ErrorType, I2c};
+use embedded_hal::i2c::I2c;
 
 pub const QWIIC_JOY_DEFAULT_ADDR: u8 = 0x20;
 
