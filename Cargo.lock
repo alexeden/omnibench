@@ -1030,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "adafruit-seesaw",
  "anyhow",
+ "embedded-hal 1.0.0",
  "embedded-hal-bus",
  "embuild",
  "enumset",
