@@ -13,6 +13,7 @@ use esp_idf_svc::{
         },
     },
     hal::{
+        adc::oneshot::{AdcChannelDriver, AdcDriver, config::AdcChannelConfig},
         delay::Delay,
         gpio::PinDriver,
         i2c::{I2cConfig, I2cDriver},
@@ -25,7 +26,7 @@ use log::*;
 use omnibench::{
     APP_ID,
     client::{ConnectionStatus, OmnibenchClient},
-    protocol::{ButtonEvent, RelayState},
+    protocol::{ButtonEvent, ClientEvent, JoystickEvent, RelayState},
 };
 use std::{
     cell::RefCell,
@@ -47,9 +48,9 @@ const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
     b: 0,
 };
 
-// const Y_ZERO: u16 = 495;
-// const _Y_ZERO_CLIP_MIN: u16 = Y_ZERO - 5;
-// const _Y_ZERO_CLIP_MAX: u16 = Y_ZERO + 5;
+const Y_ZERO: u16 = 495;
+const Y_ZERO_CLIP_MIN: u16 = Y_ZERO - 5;
+const Y_ZERO_CLIP_MAX: u16 = Y_ZERO + 5;
 
 type NeoKeys<'bus> = NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
 
@@ -91,6 +92,16 @@ pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let peripherals = Peripherals::take()?;
+
+    let adc = AdcDriver::new(peripherals.adc2)?;
+    let mut joy_pin = AdcChannelDriver::new(
+        &adc,
+        peripherals.pins.gpio11, // D11
+        &AdcChannelConfig {
+            // attenuation: attenuation::DB_12,
+            ..Default::default()
+        },
+    )?;
 
     // I2C
     let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
@@ -167,19 +178,22 @@ pub fn main() -> anyhow::Result<()> {
     // Start all-high (no keys pressed). Low nibble = strip 0, high nibble = strip
     // 1.
     let mut last_keys: u8 = 0xFF;
-    // let mut last_y_mapped: Option<i8> = None;
+    let mut last_y_mapped: Option<i8> = None;
 
     loop {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
 
-        // let QwiicJoyState { y, .. } = joy.state().expect("Failed to get joystick
-        // state"); let y_mapped = map_analog_to_i8(y);
-
-        // if Some(y_mapped) != last_y_mapped {
-        //     info!("Joystick Y: {y} → {y_mapped}");
-        //     last_y_mapped = Some(y_mapped);
-        // }
+        let y_mapped = map_analog_to_i8(adc.read(&mut joy_pin)?);
+        if Some(y_mapped) != last_y_mapped {
+            info!("Joystick Y: {last_y_mapped:?} → {y_mapped}");
+            last_y_mapped = Some(y_mapped);
+            if status == ConnectionStatus::Connected {
+                client.write_characteristic(
+                    &ClientEvent::Joystick(JoystickEvent { value: y_mapped }).to_bytes(),
+                )?;
+            }
+        }
 
         let k0 = neokeys1.keys().unwrap_or(last_keys & 0x0F) & 0x0F;
         let k1 = neokeys2.keys().unwrap_or(last_keys >> 4) & 0x0F;
@@ -219,7 +233,9 @@ pub fn main() -> anyhow::Result<()> {
                     let bit = 1u8 << (i & 3) << (if i < 4 { 0 } else { 4 });
                     if (last_keys & bit) != 0 && (keys & bit) == 0 {
                         info!("Button {i} pressed — toggling relay {i}");
-                        client.write_characteristic(&ButtonEvent { relay: i }.to_bytes())?;
+                        client.write_characteristic(
+                            &ClientEvent::Button(ButtonEvent { relay: i }).to_bytes(),
+                        )?;
                     }
                 }
             }
@@ -237,7 +253,7 @@ pub fn main() -> anyhow::Result<()> {
     }
 }
 
-// fn map_analog_to_i8(analog: u16) -> i8 {
-//     let normalized = (analog - Y_ZERO) as f32 / (Y_ZERO_CLIP_MAX -
-// Y_ZERO_CLIP_MIN) as f32;     (normalized * 127.0) as i8
-// }
+fn map_analog_to_i8(analog: u16) -> i8 {
+    let normalized = (analog - Y_ZERO) as f32 / (Y_ZERO_CLIP_MAX - Y_ZERO_CLIP_MIN) as f32;
+    (normalized * 127.0) as i8
+}

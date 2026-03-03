@@ -21,7 +21,7 @@ use esp_idf_svc::{
 use log::*;
 use omnibench::{
     APP_ID,
-    protocol::{ButtonEvent, RelayState},
+    protocol::{ClientEvent, RelayState},
     server::OmnibenchServer,
 };
 #[cfg(feature = "relay")]
@@ -118,14 +118,22 @@ fn main() -> anyhow::Result<()> {
     let relay_state_recv = relay_state.clone();
     let server_recv = server.clone();
     server.set_recv_callback(move |bytes| {
-        if let Some(event) = ButtonEvent::from_bytes(bytes) {
-            let new_state = {
-                let mut rs = relay_state_recv.lock().unwrap();
-                *rs = rs.toggle(event.relay);
-                *rs
-            };
-            info!("Relay {} toggled → state {:?}", event.relay, new_state);
-            server_recv.check_esp_status(server_recv.notify(&new_state.to_bytes()));
+        match ClientEvent::from_bytes(bytes) {
+            Some(ClientEvent::Button(event)) => {
+                let new_state = {
+                    let mut rs = relay_state_recv.lock().unwrap();
+                    *rs = rs.toggle(event.relay);
+                    *rs
+                };
+                info!("Relay {} toggled → state {:?}", event.relay, new_state);
+                server_recv.check_esp_status(server_recv.notify(&new_state.to_bytes()));
+            }
+            Some(ClientEvent::Joystick(event)) => {
+                info!("Joystick: {}", event.value);
+            }
+            None => {
+                warn!("Unknown recv payload: {bytes:?}");
+            }
         }
     });
 
