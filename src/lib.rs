@@ -3,6 +3,7 @@ pub mod client;
 pub mod joystick;
 pub mod protocol;
 pub mod server;
+pub mod stepper;
 
 pub const APP_ID: u16 = 0;
 
