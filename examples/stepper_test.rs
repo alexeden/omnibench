@@ -9,7 +9,8 @@ pub fn main() -> anyhow::Result<()> {
 
     let peripherals = Peripherals::take()?;
 
-    let freq_gen = FreqGen::try_new(peripherals.rmt.channel0, peripherals.pins.gpio0)?;
+    let _freq_gen = FreqGen::try_new(peripherals.pins.gpio0)?;
+    info!("FreqGen initialized");
     // let rmt = RmtDriver::new(peripherals.rmt.channel0)?;
     // let mut adc_pin = AdcChannelDriver::new(
     //     &adc,
