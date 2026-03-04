@@ -48,9 +48,9 @@ const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
     b: 0,
 };
 
-const Y_ZERO: u16 = 495;
-const Y_ZERO_CLIP_MIN: u16 = Y_ZERO - 5;
-const Y_ZERO_CLIP_MAX: u16 = Y_ZERO + 5;
+// const Y_ZERO: u16 = 495;
+// const Y_ZERO_CLIP_MIN: u16 = Y_ZERO - 5;
+// const Y_ZERO_CLIP_MAX: u16 = Y_ZERO + 5;
 
 type NeoKeys<'bus> = NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
 
@@ -253,7 +253,9 @@ pub fn main() -> anyhow::Result<()> {
     }
 }
 
-fn map_analog_to_i8(analog: u16) -> i8 {
-    let normalized = (analog - Y_ZERO) as f32 / (Y_ZERO_CLIP_MAX - Y_ZERO_CLIP_MIN) as f32;
-    (normalized * 127.0) as i8
+fn map_analog_to_i8(_analog: u16) -> i8 {
+    // 0
+    // let _normalized = (analog - Y_ZERO) as f32 / (Y_ZERO_CLIP_MAX -
+    // Y_ZERO_CLIP_MIN) as f32; (normalized * 127.0) as i8;
+    0i8
 }
