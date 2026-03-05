@@ -32,6 +32,7 @@ use log::*;
 use omnibench::{
     APP_ID,
     client::{ConnectionStatus, OmnibenchClient},
+    joystick::map_mv_to_i8,
     protocol::{ButtonEvent, ClientEvent, JoystickEvent, RelayState},
 };
 use std::{
@@ -191,7 +192,7 @@ pub fn main() -> anyhow::Result<()> {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
 
-        let y_mapped = map_joy_to_i8(adc.read(&mut joy_pin)?);
+        let y_mapped = map_mv_to_i8(adc.read(&mut joy_pin)?);
         if Some(y_mapped) != last_y_mapped {
             info!("Joystick Y: {last_y_mapped:?} → {y_mapped}");
             last_y_mapped = Some(y_mapped);
@@ -258,10 +259,4 @@ pub fn main() -> anyhow::Result<()> {
         }
         last_keys = keys;
     }
-}
-
-fn map_joy_to_i8(mv: u16) -> i8 {
-    // let normalized = mv as f32 / 3061.0; // 0.0..=1.0
-    // (normalized * 255.0 - 127.0).round().clamp(-127.0, 128.0) as i8
-    0
 }
