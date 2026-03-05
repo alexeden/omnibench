@@ -17,6 +17,7 @@ use omnibench::{
     APP_ID,
     protocol::{ClientEvent, RelayState},
     server::OmnibenchServer,
+    stepper::Stepper,
 };
 #[cfg(feature = "relay")]
 use port_expander::{Pcf8574a, write_multiple};
@@ -37,8 +38,7 @@ fn main() -> anyhow::Result<()> {
     // I2C
     let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
     i2c_power.set_low()?;
-
-    info!("Initializing I2C and Seesaw");
+    info!("Initializing I2C");
     let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
     let i2c = RefCell::new(I2cDriver::<'static>::new(
@@ -48,37 +48,55 @@ fn main() -> anyhow::Result<()> {
         &config,
     )?);
     i2c_power.set_high()?;
-
     #[cfg(feature = "relay")]
     let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
 
-    std::thread::sleep(Duration::from_millis(50));
+    let (stepper_dir, stepper_en, stepper_pul) = (
+        peripherals.pins.gpio11,
+        peripherals.pins.gpio12,
+        peripherals.pins.gpio13,
+    );
 
+    // BLE
     let server = OmnibenchServer::new(
         Arc::new(EspBleGap::new(bt.clone())?),
         Arc::new(EspGatts::new(bt.clone())?),
     );
-
-    info!("BLE Gap and Gatts initialized");
-
     let gap_server = server.clone();
+    let gatts_server = server.clone();
     server.gap.subscribe(move |event| {
         gap_server.check_esp_status(gap_server.on_gap_event(event));
     })?;
-
-    let gatts_server = server.clone();
     server.gatts.subscribe(move |(gatt_if, event)| {
         gatts_server.check_esp_status(gatts_server.on_gatts_event(gatt_if, event))
     })?;
-
     info!("BLE Gap and Gatts subscriptions initialized");
-
     server.gatts.register_app(APP_ID)?;
-
     info!("Gatts BTP app registered");
 
     let relay_state = Arc::new(Mutex::new(RelayState::default()));
     let joy_state = Arc::new(Mutex::new(0i8));
+
+    // Stepper thread: construct and drive entirely within the thread to avoid
+    // Send issues with rmt_encoder_t.
+    let joy_state_stepper = joy_state.clone();
+    std::thread::spawn(move || {
+        let mut stepper = match Stepper::try_new(stepper_dir, stepper_en, stepper_pul) {
+            Ok(s) => s,
+            Err(e) => panic!("Stepper init failed: {e:?}"),
+        };
+        let mut last_joy = 0i8;
+        loop {
+            let joy = *joy_state_stepper.lock().unwrap();
+            if joy != last_joy {
+                if let Err(e) = stepper.drive(joy) {
+                    warn!("Stepper error: {e:?}");
+                }
+                last_joy = joy;
+            }
+            // std::thread::sleep(Duration::from_millis(50));
+        }
+    });
 
     // Toggle the appropriate relay when a ButtonEvent arrives from the client,
     // then broadcast the updated state to all subscribers.
@@ -97,7 +115,7 @@ fn main() -> anyhow::Result<()> {
         }
         Some(ClientEvent::Joystick(event)) => {
             *joy_state_recv.lock().unwrap() = event.value;
-            info!("Joystick: {}", event.value);
+            // info!("Joystick: {}", event.value);
         }
         None => {
             warn!("Unknown recv payload: {bytes:?}");
@@ -146,6 +164,6 @@ fn main() -> anyhow::Result<()> {
             last_connected = Some(connected);
         }
 
-        std::thread::sleep(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(19));
     }
 }

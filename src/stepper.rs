@@ -1,7 +1,7 @@
 use core::time::Duration;
-use embedded_hal::digital::{OutputPin, PinState};
+use embedded_hal::digital::PinState;
 use esp_idf_svc::hal::{
-    gpio::{Output, OutputPin as EspOutputPin, PinDriver},
+    gpio::{Level, Output, OutputPin as EspOutputPin, PinDriver},
     rmt::{
         PinState as RmtPinState, RmtChannel, Symbol, TxChannelDriver,
         config::{Loop, TransmitConfig, TxChannelConfig},
@@ -42,22 +42,19 @@ impl<'d> FreqGen<'d> {
     ///
     /// Safe to call while already running — the previous transmission is
     /// stopped first.
-    pub fn set_freq(&mut self, freq: Hertz) -> Result<(), EspError> {
-        info!(
-            "Setting frequency to {}, resolution: {}",
-            freq, self.resolution
-        );
+    pub fn set_freq<F: Into<Hertz>>(&mut self, freq: F) -> Result<(), EspError> {
+        let freq: Hertz = freq.into();
         if self.driver.is_enabled() {
-            info!("Disabling driver");
+            // info!("Disabling driver");
             self.driver.disable()?;
         }
 
         let period = Duration::from_nanos(1_000_000_000u64 / u32::from(freq) as u64);
-        info!("Period: {:?}", period);
+        // info!("Period: {:?}", period);
         *self.signal =
             Symbol::new_half_split(self.resolution, RmtPinState::High, RmtPinState::Low, period)?;
 
-        info!("Signal: {:?}", self.signal);
+        // info!("Signal: {:?}", self.signal);
         let config = TransmitConfig {
             loop_count: Loop::Endless,
             ..TransmitConfig::default()
@@ -66,7 +63,7 @@ impl<'d> FreqGen<'d> {
         // SAFETY: `self.signal` is heap-allocated so its address is stable even if
         // `self` is moved. We stopped any in-progress transmission above before
         // mutating the signal.
-        info!("Starting send");
+        // info!("Starting send");
         unsafe {
             self.driver.start_send(
                 &mut self.encoder,
@@ -74,8 +71,7 @@ impl<'d> FreqGen<'d> {
                 &config,
             )?;
         }
-
-        info!("Send started");
+        info!("Frequency set to {freq}");
         Ok(())
     }
 
@@ -98,6 +94,15 @@ impl From<StepperDirection> for PinState {
         match value {
             StepperDirection::Reverse => PinState::Low,
             StepperDirection::Forward => PinState::High,
+        }
+    }
+}
+
+impl From<StepperDirection> for Level {
+    fn from(value: StepperDirection) -> Self {
+        match value {
+            StepperDirection::Reverse => Level::Low,
+            StepperDirection::Forward => Level::High,
         }
     }
 }
@@ -130,8 +135,37 @@ impl<'d> Stepper<'d> {
         Ok(self)
     }
 
-    pub fn set_dir(&mut self, _dir: StepperDirection) -> Result<(), EspError> {
-        // self.dir.set_state(dir.into())?;
+    pub fn set_dir(&mut self, dir: StepperDirection) -> Result<(), EspError> {
+        self.dir.set_level(dir.into())?;
         Ok(())
     }
+
+    /// Drive the stepper from a signed joystick value (-127..=128).
+    /// Zero disables; sign sets direction; magnitude sets speed.
+    pub fn drive(&mut self, value: i8) -> Result<(), EspError> {
+        if value == 0 {
+            self.pulse.set_freq(1.Hz())?;
+            self.pulse.stop()?;
+            self.disable()?;
+        } else {
+            info!("Driving stepper: {value}");
+            let dir = if value > 0 {
+                StepperDirection::Forward
+            } else {
+                StepperDirection::Reverse
+            };
+            self.set_dir(dir)?;
+            self.pulse.set_freq(map_joy_to_hz(value.unsigned_abs()))?;
+            self.enable()?;
+        }
+        Ok(())
+    }
+}
+
+const MIN_SPEED_HZ: u32 = 1;
+const MAX_SPEED_HZ: u32 = 400;
+
+fn map_joy_to_hz(abs_value: u8) -> u32 {
+    let t = abs_value as f32 / 127.0;
+    (MIN_SPEED_HZ as f32 + t * (MAX_SPEED_HZ - MIN_SPEED_HZ) as f32) as u32
 }

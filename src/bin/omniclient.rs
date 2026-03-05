@@ -106,10 +106,11 @@ pub fn main() -> anyhow::Result<()> {
 
     let peripherals = Peripherals::take()?;
 
-    let adc = AdcDriver::new(peripherals.adc2)?;
+    let adc = AdcDriver::new(peripherals.adc1)?;
     let mut joy_adc = AdcChannelDriver::new(
         &adc,
-        peripherals.pins.gpio11, // D11
+        peripherals.pins.gpio8, // A5
+        // peripherals.pins.gpio11, // D11
         &AdcChannelConfig {
             attenuation: attenuation::DB_12,
             calibration: Calibration::Curve,
@@ -199,18 +200,20 @@ pub fn main() -> anyhow::Result<()> {
         let joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
         // Joy loop: enter when joy is non-zero, exit when joy is zero
         if joy != 0 {
+            info!("Joystick nonzero: {joy}");
             let mut current_joy = joy;
             set_uniform(&mut neokeys1, if current_joy < 0 { YELLOW } else { OFF })?;
             set_uniform(&mut neokeys2, if current_joy < 0 { OFF } else { YELLOW })?;
             loop {
+                std::thread::sleep(Duration::from_millis(50));
+                current_joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
                 if status == ConnectionStatus::Connected {
                     client.write_characteristic(
                         &ClientEvent::Joystick(JoystickEvent { value: current_joy }).to_bytes(),
                     )?;
+                } else {
+                    break;
                 }
-
-                std::thread::sleep(Duration::from_millis(50));
-                current_joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
                 if current_joy == 0 {
                     break;
                 }

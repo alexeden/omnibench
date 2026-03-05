@@ -105,8 +105,6 @@ impl OmnibenchServer {
 
     /// The main event handler for the GAP events
     pub fn on_gap_event(&self, event: BleGapEvent) -> Result<(), EspError> {
-        info!("Got event: {event:?}");
-
         if let BleGapEvent::AdvertisingConfigured(status) = event {
             self.check_bt_status(status)?;
             self.gap.start_advertising()?;
@@ -121,7 +119,6 @@ impl OmnibenchServer {
         gatt_if: GattInterface,
         event: GattsEvent,
     ) -> Result<(), EspError> {
-        info!("Got event: {event:?}");
         if let Some(status) = status_from_gatts_event(&event)
             && !matches!(status, GattStatus::Ok)
         {

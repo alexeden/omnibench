@@ -434,7 +434,10 @@ impl OmnibenchClient {
                     return Ok(());
                 }
 
-                let Some(descr) = descrs.first().filter(|d| d.uuid() == NOTIFY_DESCRIPTOR_UUID) else {
+                let Some(descr) = descrs
+                    .first()
+                    .filter(|d| d.uuid() == NOTIFY_DESCRIPTOR_UUID)
+                else {
                     error!("No ind descriptor found");
                     return Ok(());
                 };
@@ -480,8 +483,8 @@ impl OmnibenchClient {
                 state.status = ConnectionStatus::Disconnected;
                 info!("GattcEvent::Disconnected: remote {addr}, reason {reason:?}");
             }
-            evt => {
-                info!("______ GattcEvent: {evt:?}");
+            _evt => {
+                // info!("______ GattcEvent: {evt:?}");
             }
         }
         Ok(())

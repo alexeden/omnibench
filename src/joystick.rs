@@ -1,9 +1,12 @@
-const JOY_ZERO_CLIP: u16 = 15;
+const JOY_ZERO_CLIP: u16 = 50;
 const JOY_ZERO: u16 = 1563;
 const JOY_MIN: u16 = 0;
 const JOY_MAX: u16 = 3061;
 
-// Map an ADC millivolt value to a signed byte in the range -127..=127.
+/// Map an ADC millivolt value to a signed byte in the range -127..=127.
+///
+/// Run the `examples/adc_test.rs` example to get a sense of the mapping and the
+/// JOY_* constants.
 pub fn map_mv_to_i8(mv: u16) -> i8 {
     let mv = mv as f32;
     let zero = JOY_ZERO as f32;
