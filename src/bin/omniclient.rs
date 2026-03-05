@@ -13,7 +13,13 @@ use esp_idf_svc::{
         },
     },
     hal::{
-        adc::oneshot::{AdcChannelDriver, AdcDriver, config::AdcChannelConfig},
+        adc::{
+            attenuation,
+            oneshot::{
+                AdcChannelDriver, AdcDriver,
+                config::{AdcChannelConfig, Calibration},
+            },
+        },
         delay::Delay,
         gpio::PinDriver,
         i2c::{I2cConfig, I2cDriver},
@@ -98,7 +104,8 @@ pub fn main() -> anyhow::Result<()> {
         &adc,
         peripherals.pins.gpio11, // D11
         &AdcChannelConfig {
-            // attenuation: attenuation::DB_12,
+            attenuation: attenuation::DB_12,
+            calibration: Calibration::Curve,
             ..Default::default()
         },
     )?;
@@ -184,7 +191,7 @@ pub fn main() -> anyhow::Result<()> {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
 
-        let y_mapped = map_analog_to_i8(adc.read(&mut joy_pin)?);
+        let y_mapped = map_joy_to_i8(adc.read(&mut joy_pin)?);
         if Some(y_mapped) != last_y_mapped {
             info!("Joystick Y: {last_y_mapped:?} → {y_mapped}");
             last_y_mapped = Some(y_mapped);
@@ -253,9 +260,8 @@ pub fn main() -> anyhow::Result<()> {
     }
 }
 
-fn map_analog_to_i8(_analog: u16) -> i8 {
-    // 0
-    // let _normalized = (analog - Y_ZERO) as f32 / (Y_ZERO_CLIP_MAX -
-    // Y_ZERO_CLIP_MIN) as f32; (normalized * 127.0) as i8;
-    0i8
+fn map_joy_to_i8(mv: u16) -> i8 {
+    // let normalized = mv as f32 / 3061.0; // 0.0..=1.0
+    // (normalized * 255.0 - 127.0).round().clamp(-127.0, 128.0) as i8
+    0
 }
