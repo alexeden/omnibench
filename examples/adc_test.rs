@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
         let raw = adc.read_raw(&mut joy_pin)?;
         let mv = adc.raw_to_mv(&joy_pin, raw)?;
         let i8 = map_mv_to_i8(mv);
-        info!("raw: {}, mv: {}, i8: {}", raw, mv, i8);
+        info!("mv: {mv}, i8: {i8}, raw: {raw}");
         std::thread::sleep(Duration::from_millis(200));
     }
 }
