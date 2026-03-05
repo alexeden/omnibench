@@ -196,20 +196,13 @@ pub fn main() -> anyhow::Result<()> {
     loop {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
-
         let joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
+        // Joy loop: enter when joy is non-zero, exit when joy is zero
         if joy != 0 {
-            // Enter joystick control loop until released
             let mut current_joy = joy;
+            set_uniform(&mut neokeys1, if current_joy < 0 { YELLOW } else { OFF })?;
+            set_uniform(&mut neokeys2, if current_joy < 0 { OFF } else { YELLOW })?;
             loop {
-                if current_joy < 0 {
-                    set_uniform(&mut neokeys1, YELLOW)?;
-                    set_uniform(&mut neokeys2, OFF)?;
-                } else {
-                    set_uniform(&mut neokeys1, OFF)?;
-                    set_uniform(&mut neokeys2, YELLOW)?;
-                }
-
                 if status == ConnectionStatus::Connected {
                     client.write_characteristic(
                         &ClientEvent::Joystick(JoystickEvent { value: current_joy }).to_bytes(),
