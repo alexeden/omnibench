@@ -54,6 +54,12 @@ const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
     g: 128,
     b: 0,
 };
+const YELLOW: NeoKey1x4Color = NeoKey1x4Color {
+    r: 255,
+    g: 255,
+    b: 0,
+};
+const OFF: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 0 };
 
 // const Y_ZERO: u16 = 495;
 // const Y_ZERO_CLIP_MIN: u16 = Y_ZERO - 5;
@@ -101,7 +107,7 @@ pub fn main() -> anyhow::Result<()> {
     let peripherals = Peripherals::take()?;
 
     let adc = AdcDriver::new(peripherals.adc2)?;
-    let mut joy_pin = AdcChannelDriver::new(
+    let mut joy_adc = AdcChannelDriver::new(
         &adc,
         peripherals.pins.gpio11, // D11
         &AdcChannelConfig {
@@ -186,21 +192,37 @@ pub fn main() -> anyhow::Result<()> {
     // Start all-high (no keys pressed). Low nibble = strip 0, high nibble = strip
     // 1.
     let mut last_keys: u8 = 0xFF;
-    let mut last_y_mapped: Option<i8> = None;
 
     loop {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
 
-        let y_mapped = map_mv_to_i8(adc.read(&mut joy_pin)?);
-        if Some(y_mapped) != last_y_mapped {
-            info!("Joystick Y: {last_y_mapped:?} → {y_mapped}");
-            last_y_mapped = Some(y_mapped);
-            if status == ConnectionStatus::Connected {
-                client.write_characteristic(
-                    &ClientEvent::Joystick(JoystickEvent { value: y_mapped }).to_bytes(),
-                )?;
+        let joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
+        if joy != 0 {
+            // Enter joystick control loop until released
+            let mut current_joy = joy;
+            loop {
+                if current_joy < 0 {
+                    set_uniform(&mut neokeys1, YELLOW)?;
+                    set_uniform(&mut neokeys2, OFF)?;
+                } else {
+                    set_uniform(&mut neokeys1, OFF)?;
+                    set_uniform(&mut neokeys2, YELLOW)?;
+                }
+
+                if status == ConnectionStatus::Connected {
+                    client.write_characteristic(
+                        &ClientEvent::Joystick(JoystickEvent { value: current_joy }).to_bytes(),
+                    )?;
+                }
+
+                std::thread::sleep(Duration::from_millis(50));
+                current_joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
+                if current_joy == 0 {
+                    break;
+                }
             }
+            last_status = None; // force LED refresh on next iteration
         }
 
         let k0 = neokeys1.keys().unwrap_or(last_keys & 0x0F) & 0x0F;
