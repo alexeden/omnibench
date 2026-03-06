@@ -61,44 +61,7 @@ const YELLOW: NeoKey1x4Color = NeoKey1x4Color {
 };
 const OFF: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 0 };
 
-// const Y_ZERO: u16 = 495;
-// const Y_ZERO_CLIP_MIN: u16 = Y_ZERO - 5;
-// const Y_ZERO_CLIP_MAX: u16 = Y_ZERO + 5;
-
 type NeoKeys<'bus> = NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
-
-fn button_color(pressed: bool, relay_on: bool) -> NeoKey1x4Color {
-    if pressed {
-        BLUE
-    } else if relay_on {
-        WHITE
-    } else {
-        DIM_WHITE
-    }
-}
-
-fn update_strip(
-    strip: &mut NeoKeys<'_>,
-    nibble: u8,
-    relay_state: RelayState,
-    relay_offset: u8,
-) -> anyhow::Result<()> {
-    let colors = std::array::from_fn::<_, 4, _>(|i| {
-        let i = i as u8;
-        button_color((nibble >> i) & 1 == 0, relay_state.is_on(relay_offset + i))
-    });
-    strip
-        .set_neopixel_colors(&colors)
-        .and_then(|_| strip.sync_neopixel())
-        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
-}
-
-fn set_uniform(strip: &mut NeoKeys<'_>, color: NeoKey1x4Color) -> anyhow::Result<()> {
-    strip
-        .set_neopixel_colors(&[color, color, color, color])
-        .and_then(|_| strip.sync_neopixel())
-        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
-}
 
 pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
@@ -118,14 +81,10 @@ pub fn main() -> anyhow::Result<()> {
     )?;
 
     // I2C
-    #[cfg(not(esp32s3))]
-    let mut i2c_power = PinDriver::output(peripherals.pins.gpio2)?;
-    #[cfg(esp32s3)]
-    let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
-    i2c_power.set_low()?;
-
     info!("Initializing I2C and Seesaw");
-    let (sda, scl) = omnibench::board_i2c_pins!(peripherals);
+    let (i2c_power, sda, scl) = omnibench::board_i2c_pins!(peripherals);
+    let mut i2c_power = PinDriver::output(i2c_power)?;
+    i2c_power.set_low()?;
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
     let delay = Delay::new_default();
     let i2c = RefCell::new(I2cDriver::<'static>::new(
@@ -185,6 +144,8 @@ pub fn main() -> anyhow::Result<()> {
     info!("Subscriptions initialized; registering app and starting scan");
     client.gattc.register_app(APP_ID)?;
     gatt::set_local_mtu(500)?;
+
+    wait_for_connection(&client, &mut neokeys1, &mut neokeys2)?;
 
     // Main loop: update LEDs from connection status and relay state; handle
     // button presses for both relay toggling (connected) and rescan (disconnected).
@@ -277,5 +238,62 @@ pub fn main() -> anyhow::Result<()> {
             ConnectionStatus::Scanning => {}
         }
         last_keys = keys;
+    }
+}
+
+fn button_color(pressed: bool, relay_on: bool) -> NeoKey1x4Color {
+    if pressed {
+        BLUE
+    } else if relay_on {
+        WHITE
+    } else {
+        DIM_WHITE
+    }
+}
+
+fn set_uniform(strip: &mut NeoKeys<'_>, color: NeoKey1x4Color) -> anyhow::Result<()> {
+    strip
+        .set_neopixel_colors(&[color, color, color, color])
+        .and_then(|_| strip.sync_neopixel())
+        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
+}
+
+fn update_strip(
+    strip: &mut NeoKeys<'_>,
+    nibble: u8,
+    relay_state: RelayState,
+    relay_offset: u8,
+) -> anyhow::Result<()> {
+    let colors = std::array::from_fn::<_, 4, _>(|i| {
+        let i = i as u8;
+        button_color((nibble >> i) & 1 == 0, relay_state.is_on(relay_offset + i))
+    });
+    strip
+        .set_neopixel_colors(&colors)
+        .and_then(|_| strip.sync_neopixel())
+        .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
+}
+
+fn wait_for_connection(
+    client: &OmnibenchClient,
+    neokeys1: &mut NeoKeys<'_>,
+    neokeys2: &mut NeoKeys<'_>,
+) -> anyhow::Result<()> {
+    info!("Waiting for BT connection...");
+    loop {
+        let status = client.status();
+        if status == ConnectionStatus::Connected {
+            info!("BT connected");
+            return Ok(());
+        }
+        let color = match status {
+            ConnectionStatus::Scanning => BLUE,
+            ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected => RED,
+            ConnectionStatus::Error => ORANGE,
+            ConnectionStatus::Connected => unreachable!(),
+        };
+        set_uniform(neokeys1, color)?;
+        set_uniform(neokeys2, color)?;
+        std::thread::sleep(Duration::from_millis(100));
     }
 }

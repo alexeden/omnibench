@@ -3,15 +3,23 @@
 /// Selects GPIO22/GPIO20 on ESP32, or GPIO3/GPIO4 on ESP32-S3.
 ///
 /// ```rust
-/// let (sda, scl) = board_i2c_pins!(peripherals);
+/// let (i2c_pwr, sda, scl) = board_i2c_pins!(peripherals);
 /// ```
 #[macro_export]
 macro_rules! board_i2c_pins {
     ($peripherals:expr) => {{
         #[cfg(not(esp32s3))]
-        let pins = ($peripherals.pins.gpio22, $peripherals.pins.gpio20);
+        let pins = (
+            $peripherals.pins.gpio2,
+            $peripherals.pins.gpio22,
+            $peripherals.pins.gpio20,
+        );
         #[cfg(esp32s3)]
-        let pins = ($peripherals.pins.gpio3, $peripherals.pins.gpio4);
+        let pins = (
+            $peripherals.pins.gpio7,
+            $peripherals.pins.gpio3,
+            $peripherals.pins.gpio4,
+        );
         pins
     }};
 }
@@ -29,15 +37,13 @@ macro_rules! board_joy_adc {
     ($peripherals:expr) => {{
         #[cfg(not(esp32s3))]
         {
-            let adc =
-                esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc2)?;
+            let adc = esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc2)?;
             let pin = $peripherals.pins.gpio4;
             (adc, pin)
         }
         #[cfg(esp32s3)]
         {
-            let adc =
-                esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc1)?;
+            let adc = esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc1)?;
             let pin = $peripherals.pins.gpio8;
             (adc, pin)
         }

@@ -23,7 +23,8 @@ pub struct FreqGen<'d> {
 impl<'d> FreqGen<'d> {
     pub fn try_new(pin: impl EspOutputPin + 'd) -> Result<Self, EspError> {
         let channel_config = TxChannelConfig {
-            resolution: 100u32.kHz().into(),
+            // 80 MHz APB / 1 MHz = div 80, which is within the [1, 256] hw limit.
+            resolution: 1u32.MHz().into(),
             ..TxChannelConfig::default()
         };
         let resolution = channel_config.resolution;
@@ -144,7 +145,6 @@ impl<'d> Stepper<'d> {
     /// Zero disables; sign sets direction; magnitude sets speed.
     pub fn drive(&mut self, value: i8) -> Result<(), EspError> {
         if value == 0 {
-            self.pulse.set_freq(1.Hz())?;
             self.pulse.stop()?;
             self.disable()?;
         } else {
@@ -162,7 +162,9 @@ impl<'d> Stepper<'d> {
     }
 }
 
-const MIN_SPEED_HZ: u32 = 1;
+// At 1 MHz RMT resolution, the 15-bit duration field tops out at 32767 ticks
+// (32.77 ms per half-period), giving a minimum frequency of ~15 Hz.
+const MIN_SPEED_HZ: u32 = 20;
 const MAX_SPEED_HZ: u32 = 400;
 
 fn map_joy_to_hz(abs_value: u8) -> u32 {

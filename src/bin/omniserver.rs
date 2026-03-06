@@ -36,10 +36,9 @@ fn main() -> anyhow::Result<()> {
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
 
     // I2C
-    let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
+    let (i2c_power, sda, scl) = omnibench::board_i2c_pins!(peripherals);
+    let mut i2c_power = PinDriver::output(i2c_power)?;
     i2c_power.set_low()?;
-    info!("Initializing I2C");
-    let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
     let i2c = RefCell::new(I2cDriver::<'static>::new(
         peripherals.i2c0,
@@ -48,6 +47,7 @@ fn main() -> anyhow::Result<()> {
         &config,
     )?);
     i2c_power.set_high()?;
+    std::thread::sleep(Duration::from_millis(50));
     #[cfg(feature = "relay")]
     let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
 
@@ -85,6 +85,7 @@ fn main() -> anyhow::Result<()> {
             Ok(s) => s,
             Err(e) => panic!("Stepper init failed: {e:?}"),
         };
+        info!("Stepper initialized");
         let mut last_joy = 0i8;
         loop {
             let joy = *joy_state_stepper.lock().unwrap();
@@ -94,7 +95,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 last_joy = joy;
             }
-            // std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(10));
         }
     });
 
@@ -136,6 +137,7 @@ fn main() -> anyhow::Result<()> {
     // red = no clients connected. Brightness reflects relay on/off state.
     let mut last_relay_state: Option<RelayState> = None;
     let mut last_connected: Option<bool> = None;
+    info!("Starting main loop...");
 
     loop {
         let current_state = *relay_state.lock().unwrap();
