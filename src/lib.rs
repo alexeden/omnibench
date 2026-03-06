@@ -1,4 +1,5 @@
 use esp_idf_svc::bt::BtUuid;
+pub mod board;
 pub mod client;
 pub mod joystick;
 pub mod protocol;

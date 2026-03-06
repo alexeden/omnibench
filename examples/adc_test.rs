@@ -2,7 +2,7 @@ use esp_idf_svc::hal::{
     adc::{
         Resolution, attenuation,
         oneshot::{
-            AdcChannelDriver, AdcDriver,
+            AdcChannelDriver,
             config::{AdcChannelConfig, Calibration},
         },
     },
@@ -16,16 +16,22 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
     let peripherals = Peripherals::take()?;
-    let adc = AdcDriver::new(peripherals.adc1)?;
-    let mut joy_pin = AdcChannelDriver::new(
-        &adc,
-        peripherals.pins.gpio8, // A5
-        &AdcChannelConfig {
+    let (adc, joy_gpio) = omnibench::board_joy_adc!(peripherals);
+    let mut joy_pin = AdcChannelDriver::new(&adc, joy_gpio, &{
+        #[cfg(not(esp32s3))]
+        let cfg = AdcChannelConfig {
+            attenuation: attenuation::DB_12,
+            calibration: Calibration::Line,
+            resolution: Resolution::Resolution12Bit,
+        };
+        #[cfg(esp32s3)]
+        let cfg = AdcChannelConfig {
             attenuation: attenuation::DB_12,
             calibration: Calibration::Curve,
             resolution: Resolution::Resolution12Bit,
-        },
-    )?;
+        };
+        cfg
+    })?;
 
     loop {
         let raw = adc.read_raw(&mut joy_pin)?;

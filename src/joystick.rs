@@ -1,5 +1,5 @@
 const JOY_ZERO_CLIP: u16 = 50;
-const JOY_ZERO: u16 = 1563;
+const JOY_ZERO: u16 = 1560;
 const JOY_MIN: u16 = 0;
 const JOY_MAX: u16 = 3061;
 

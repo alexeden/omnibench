@@ -16,7 +16,7 @@ use esp_idf_svc::{
         adc::{
             attenuation,
             oneshot::{
-                AdcChannelDriver, AdcDriver,
+                AdcChannelDriver,
                 config::{AdcChannelConfig, Calibration},
             },
         },
@@ -106,35 +106,36 @@ pub fn main() -> anyhow::Result<()> {
 
     let peripherals = Peripherals::take()?;
 
-    let adc = AdcDriver::new(peripherals.adc1)?;
+    let (adc, joy_pin) = omnibench::board_joy_adc!(peripherals);
     let mut joy_adc = AdcChannelDriver::new(
         &adc,
-        peripherals.pins.gpio8, // A5
-        // peripherals.pins.gpio11, // D11
+        joy_pin,
         &AdcChannelConfig {
             attenuation: attenuation::DB_12,
-            calibration: Calibration::Curve,
+            calibration: Calibration::Line,
             ..Default::default()
         },
     )?;
 
     // I2C
+    #[cfg(not(esp32s3))]
+    let mut i2c_power = PinDriver::output(peripherals.pins.gpio2)?;
+    #[cfg(esp32s3)]
     let mut i2c_power = PinDriver::output(peripherals.pins.gpio7)?;
     i2c_power.set_low()?;
 
     info!("Initializing I2C and Seesaw");
-    let (sda, scl) = (peripherals.pins.gpio3, peripherals.pins.gpio4);
+    let (sda, scl) = omnibench::board_i2c_pins!(peripherals);
     let config = I2cConfig::new().baudrate(400u32.kHz().into());
     let delay = Delay::new_default();
     let i2c = RefCell::new(I2cDriver::<'static>::new(
-        peripherals.i2c0,
+        peripherals.i2c1,
         sda,
         scl,
         &config,
     )?);
     i2c_power.set_high()?;
     std::thread::sleep(Duration::from_millis(50));
-    // let mut joy = QwiicJoy::new(RefCellDevice::new(&i2c));
     let seesaw = SeesawDriver::new(delay, RefCellDevice::new(&i2c));
     let mut neokeys1 = NeoKey1x4::new(0x33, seesaw)
         .init()

@@ -4,6 +4,9 @@ authors = ["Alex Eden <alexandereden91@gmail.com>"]
 version = "0.1.0"
 edition = "2024"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(esp32s3)'] }
+
 [build-dependencies]
 embuild = "0.33"
 

@@ -1,5 +1,7 @@
 # https://github.com/esp-rs/espflash/blob/main/espflash/README.md#espflashtoml
-baudrate = 921600
+# baudrate = 921600
+baudrate = 115200
+
 
 [idf]
 partition_table = "partitions.csv"
