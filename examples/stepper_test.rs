@@ -1,6 +1,6 @@
-use esp_idf_svc::hal::{peripherals::Peripherals, units::FromValueType};
+use esp_idf_svc::hal::peripherals::Peripherals;
 use log::*;
-use omnibench::stepper::FreqGen;
+use omnibench::stepper::Stepper;
 use std::time::Duration;
 
 pub fn main() -> anyhow::Result<()> {
@@ -8,20 +8,20 @@ pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let peripherals = Peripherals::take()?;
+    let (stepper_dir, stepper_en, stepper_pul) = omnibench::board_stepper_pins!(peripherals);
 
-    let mut freq_gen = FreqGen::try_new(peripherals.pins.gpio13)?;
-    info!("FreqGen initialized");
-
-    let mut f = 1u32.Hz();
-    loop {
-        if let Err(e) = freq_gen.set_freq(f) {
-            error!("Error setting frequency: {:?}", e);
+    let mut stepper = match Stepper::try_new(stepper_dir, stepper_en, stepper_pul) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Stepper init failed: {e:?}");
+            panic!("Stepper init failed: {e:?}");
         }
-        f = if f > 20.Hz() {
-            1u32.Hz()
-        } else {
-            f + 1u32.Hz()
-        };
-        std::thread::sleep(Duration::from_millis(500));
+    };
+    // let mut f = 1u32.Hz();
+    let mut value = 0i8;
+    loop {
+        value = if value >= 5 { -5 } else { value + 1 };
+        stepper.drive(value)?;
+        std::thread::sleep(Duration::from_millis(if value != 0 { 500 } else { 2000 }));
     }
 }
