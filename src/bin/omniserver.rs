@@ -51,11 +51,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(feature = "relay")]
     let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
 
-    let (stepper_dir, stepper_en, stepper_pul) = (
-        peripherals.pins.gpio11,
-        peripherals.pins.gpio12,
-        peripherals.pins.gpio13,
-    );
+    let (stepper_dir, stepper_en, stepper_pul) = omnibench::board_stepper_pins!(peripherals);
 
     // BLE
     let server = OmnibenchServer::new(
@@ -64,14 +60,23 @@ fn main() -> anyhow::Result<()> {
     );
     let gap_server = server.clone();
     let gatts_server = server.clone();
-    server.gap.subscribe(move |event| {
-        gap_server.check_esp_status(gap_server.on_gap_event(event));
-    })?;
-    server.gatts.subscribe(move |(gatt_if, event)| {
-        gatts_server.check_esp_status(gatts_server.on_gatts_event(gatt_if, event))
-    })?;
+    server
+        .gap
+        .subscribe(move |event| {
+            gap_server.check_esp_status(gap_server.on_gap_event(event));
+        })
+        .expect("Failed to subscribe to Gap events");
+    server
+        .gatts
+        .subscribe(move |(gatt_if, event)| {
+            gatts_server.check_esp_status(gatts_server.on_gatts_event(gatt_if, event))
+        })
+        .expect("Failed to subscribe to Gatts events");
     info!("BLE Gap and Gatts subscriptions initialized");
-    server.gatts.register_app(APP_ID)?;
+    server
+        .gatts
+        .register_app(APP_ID)
+        .expect("Failed to register Gatts app");
     info!("Gatts BTP app registered");
 
     let relay_state = Arc::new(Mutex::new(RelayState::default()));
@@ -83,7 +88,10 @@ fn main() -> anyhow::Result<()> {
     std::thread::spawn(move || {
         let mut stepper = match Stepper::try_new(stepper_dir, stepper_en, stepper_pul) {
             Ok(s) => s,
-            Err(e) => panic!("Stepper init failed: {e:?}"),
+            Err(e) => {
+                error!("Stepper init failed: {e:?}");
+                panic!("Stepper init failed: {e:?}");
+            }
         };
         info!("Stepper initialized");
         let mut last_joy = 0i8;
