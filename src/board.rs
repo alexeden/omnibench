@@ -1,4 +1,4 @@
-/// Returns `(sda_pin, scl_pin)` for the board's I2C bus.
+/// Returns `(i2c_pwr, sda, scl)` for the board's I2C bus.
 ///
 /// Selects GPIO22/GPIO20 on ESP32, or GPIO3/GPIO4 on ESP32-S3.
 ///
@@ -47,5 +47,29 @@ macro_rules! board_joy_adc {
             let pin = $peripherals.pins.gpio8;
             (adc, pin)
         }
+    }};
+}
+
+/// Returns `(dir, en, pul)` for the board's stepper motor.
+///
+/// ```rust
+/// let (dir, en, pul) = board_stepper_pins!(peripherals);
+/// ``1
+#[macro_export]
+macro_rules! board_stepper_pins {
+    ($peripherals:expr) => {{
+        #[cfg(not(esp32s3))]
+        let pins = (
+            $peripherals.pins.gpio15, // A8
+            $peripherals.pins.gpio32, // A7
+            $peripherals.pins.gpio14, // A6
+        );
+        #[cfg(esp32s3)]
+        let pins = (
+            $peripherals.pins.gpio11, // D11
+            $peripherals.pins.gpio12, // D12
+            $peripherals.pins.gpio13, // D13
+        );
+        pins
     }};
 }
