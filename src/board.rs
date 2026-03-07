@@ -60,15 +60,15 @@ macro_rules! board_stepper_pins {
     ($peripherals:expr) => {{
         #[cfg(not(esp32s3))]
         let pins = (
-            $peripherals.pins.gpio15, // A8
-            $peripherals.pins.gpio32, // A7
-            $peripherals.pins.gpio14, // A6
+            $peripherals.pins.gpio5,  // SCK
+            $peripherals.pins.gpio19, // MOSI
+            $peripherals.pins.gpio21, // MISO
         );
         #[cfg(esp32s3)]
         let pins = (
-            $peripherals.pins.gpio11, // D11
-            $peripherals.pins.gpio12, // D12
-            $peripherals.pins.gpio13, // D13
+            $peripherals.pins.gpio36, // SCK
+            $peripherals.pins.gpio35, // MOSI
+            $peripherals.pins.gpio37, // MISO
         );
         pins
     }};

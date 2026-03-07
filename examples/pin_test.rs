@@ -30,23 +30,10 @@ pub fn main() -> anyhow::Result<()> {
         PinDriver::output(peripherals.pins.gpio7)?, // RX
         PinDriver::output(peripherals.pins.gpio8)?, // TX
     ];
-    // let (dir, en, pul) = omnibench::board_stepper_pins!(peripherals);
-    // let mut dir = PinDriver::output(dir)?;
-    // let mut en = PinDriver::output(en)?;
-    // let mut pul = PinDriver::output(pul)?;
-
-    let labels = [
-        "A12/IO13", "A11/IO12", "A10/IO27", "A9/IO33", "A8/IO15", "A7/IO32", "A6/IO14",
-    ];
     loop {
-        // for i in 0..pins.len() {
-        //     log::info!("HIGH: {}", labels[i]);
         for pin in pins_left.iter_mut().chain(pins_right.iter_mut()) {
             pin.set_high()?;
         }
-        // } else {
-        // pin.set_low()?;
-        // }
         std::thread::sleep(Duration::from_millis(1000));
         for pin in pins_left.iter_mut().chain(pins_right.iter_mut()) {
             pin.set_low()?;
