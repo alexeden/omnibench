@@ -1,7 +1,13 @@
-use esp_idf_svc::hal::{gpio::PinDriver, peripherals::Peripherals};
-use std::time::Duration;
-
+#[cfg(esp32s3)]
 pub fn main() -> anyhow::Result<()> {
+    unimplemented!();
+}
+
+#[cfg(not(esp32s3))]
+pub fn main() -> anyhow::Result<()> {
+    use esp_idf_svc::hal::{gpio::PinDriver, peripherals::Peripherals};
+    use std::time::Duration;
+
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 

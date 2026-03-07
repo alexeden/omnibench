@@ -20,11 +20,11 @@ anyhow = "1"
 enumset = "1"
 embedded-hal-bus = "0.3"
 embedded-hal = "1"
-# esp-idf-hal = { version = "0.45.2", features = ["rmt-legacy"] }
 esp-idf-svc = { version = "0.51", features = ["experimental", "alloc"] }
 heapless = { version = "0.9", default-features = false }
 log = { version = "0.4", default-features = false }
 port-expander = "0.6"
+# ws2812-esp32-rmt-driver = "0.13"
 
 [patch.crates-io]
 esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc" }

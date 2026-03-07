@@ -75,7 +75,13 @@ pub fn main() -> anyhow::Result<()> {
         joy_pin,
         &AdcChannelConfig {
             attenuation: attenuation::DB_12,
-            calibration: Calibration::Line,
+            calibration: {
+                #[cfg(not(esp32s3))]
+                let cal = Calibration::Line;
+                #[cfg(esp32s3)]
+                let cal = Calibration::Curve;
+                cal
+            },
             ..Default::default()
         },
     )?;
