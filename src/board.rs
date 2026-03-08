@@ -52,6 +52,10 @@ macro_rules! board_joy_adc {
 
 /// Returns `(dir, en, pul)` for the board's stepper motor.
 ///
+/// EN - Green
+/// DIR - Red
+/// PUL - Blue
+///
 /// ```rust
 /// let (dir, en, pul) = board_stepper_pins!(peripherals);
 /// ``1
@@ -60,14 +64,14 @@ macro_rules! board_stepper_pins {
     ($peripherals:expr) => {{
         #[cfg(not(esp32s3))]
         let pins = (
-            $peripherals.pins.gpio5,  // SCK
             $peripherals.pins.gpio19, // MOSI
+            $peripherals.pins.gpio5,  // SCK
             $peripherals.pins.gpio21, // MISO
         );
         #[cfg(esp32s3)]
         let pins = (
-            $peripherals.pins.gpio36, // SCK
             $peripherals.pins.gpio35, // MOSI
+            $peripherals.pins.gpio36, // SCK
             $peripherals.pins.gpio37, // MISO
         );
         pins
