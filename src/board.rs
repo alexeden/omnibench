@@ -38,13 +38,13 @@ macro_rules! board_joy_adc {
         #[cfg(not(esp32s3))]
         {
             let adc = esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc2)?;
-            let pin = $peripherals.pins.gpio4;
+            let pin = $peripherals.pins.gpio26; // A0
             (adc, pin)
         }
         #[cfg(esp32s3)]
         {
-            let adc = esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc1)?;
-            let pin = $peripherals.pins.gpio8;
+            let adc = esp_idf_svc::hal::adc::oneshot::AdcDriver::new($peripherals.adc2)?;
+            let pin = $peripherals.pins.gpio18; // A0
             (adc, pin)
         }
     }};

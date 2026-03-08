@@ -151,8 +151,6 @@ pub fn main() -> anyhow::Result<()> {
     client.gattc.register_app(APP_ID)?;
     gatt::set_local_mtu(500)?;
 
-    wait_for_connection(&client, &mut neokeys1, &mut neokeys2)?;
-
     // Main loop: update LEDs from connection status and relay state; handle
     // button presses for both relay toggling (connected) and rescan (disconnected).
     let mut last_status = None;
@@ -165,28 +163,25 @@ pub fn main() -> anyhow::Result<()> {
     loop {
         let status = client.status();
         let current_relay_state = *relay_state.lock().unwrap();
-        let joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
-        // Joy loop: enter when joy is non-zero, exit when joy is zero
-        if joy != 0 {
-            info!("Joystick nonzero: {joy}");
-            let mut current_joy = joy;
-            set_uniform(&mut neokeys1, if current_joy < 0 { YELLOW } else { OFF })?;
-            set_uniform(&mut neokeys2, if current_joy < 0 { OFF } else { YELLOW })?;
-            loop {
-                std::thread::sleep(Duration::from_millis(50));
-                current_joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
-                if status == ConnectionStatus::Connected {
+        if status == ConnectionStatus::Connected {
+            let mut joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
+            if joy != 0 {
+                info!("Joystick nonzero: {joy}");
+                set_uniform(&mut neokeys1, if joy < 0 { YELLOW } else { OFF })?;
+                set_uniform(&mut neokeys2, if joy < 0 { OFF } else { YELLOW })?;
+                loop {
+                    joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
+                    info!("Joystick: {joy}");
                     client.write_characteristic(
-                        &ClientEvent::Joystick(JoystickEvent { value: current_joy }).to_bytes(),
+                        &ClientEvent::Joystick(JoystickEvent { value: joy }).to_bytes(),
                     )?;
-                } else {
-                    break;
+                    if joy == 0 {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
                 }
-                if current_joy == 0 {
-                    break;
-                }
+                last_status = None; // force LED refresh on next iteration
             }
-            last_status = None; // force LED refresh on next iteration
         }
 
         let k0 = neokeys1.keys().unwrap_or(last_keys & 0x0F) & 0x0F;
@@ -278,28 +273,4 @@ fn update_strip(
         .set_neopixel_colors(&colors)
         .and_then(|_| strip.sync_neopixel())
         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
-}
-
-fn wait_for_connection(
-    client: &OmnibenchClient,
-    neokeys1: &mut NeoKeys<'_>,
-    neokeys2: &mut NeoKeys<'_>,
-) -> anyhow::Result<()> {
-    info!("Waiting for BT connection...");
-    loop {
-        let status = client.status();
-        if status == ConnectionStatus::Connected {
-            info!("BT connected");
-            return Ok(());
-        }
-        let color = match status {
-            ConnectionStatus::Scanning => BLUE,
-            ConnectionStatus::ScanFailed | ConnectionStatus::Disconnected => RED,
-            ConnectionStatus::Error => ORANGE,
-            ConnectionStatus::Connected => unreachable!(),
-        };
-        set_uniform(neokeys1, color)?;
-        set_uniform(neokeys2, color)?;
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
