@@ -1,15 +1,17 @@
+#[cfg(feature = "relay")]
 use embedded_hal_bus::i2c::RefCellDevice;
+#[cfg(feature = "relay")]
+use esp_idf_svc::hal::{
+    gpio::PinDriver,
+    i2c::{I2cConfig, I2cDriver},
+    units::FromValueType,
+};
 use esp_idf_svc::{
     bt::{
         BtDriver,
         ble::{gap::EspBleGap, gatt::server::EspGatts},
     },
-    hal::{
-        gpio::PinDriver,
-        i2c::{I2cConfig, I2cDriver},
-        peripherals::Peripherals,
-        units::FromValueType,
-    },
+    hal::peripherals::Peripherals,
     nvs::EspDefaultNvsPartition,
 };
 use log::*;
@@ -21,8 +23,9 @@ use omnibench::{
 };
 #[cfg(feature = "relay")]
 use port_expander::{Pcf8574a, write_multiple};
+#[cfg(feature = "relay")]
+use std::cell::RefCell;
 use std::{
-    cell::RefCell,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -36,18 +39,23 @@ fn main() -> anyhow::Result<()> {
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
 
     // I2C
-    let (i2c_power, sda, scl) = omnibench::board_i2c_pins!(peripherals);
-    let mut i2c_power = PinDriver::output(i2c_power)?;
-    i2c_power.set_low()?;
-    let config = I2cConfig::new().baudrate(400u32.kHz().into());
-    let i2c = RefCell::new(I2cDriver::<'static>::new(
-        peripherals.i2c0,
-        sda,
-        scl,
-        &config,
-    )?);
-    i2c_power.set_high()?;
-    std::thread::sleep(Duration::from_millis(50));
+    #[cfg(feature = "relay")]
+    let i2c = {
+        let peripherals = Peripherals::take()?;
+        let (i2c_power, sda, scl) = omnibench::board_i2c_pins!(peripherals);
+        let mut i2c_power = PinDriver::output(i2c_power)?;
+        i2c_power.set_low()?;
+        let config = I2cConfig::new().baudrate(400u32.kHz().into());
+        let i2c = RefCell::new(I2cDriver::<'static>::new(
+            peripherals.i2c0,
+            sda,
+            scl,
+            &config,
+        )?);
+        i2c_power.set_high()?;
+        std::thread::sleep(Duration::from_millis(50));
+        i2c
+    };
     #[cfg(feature = "relay")]
     let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
 
