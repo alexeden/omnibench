@@ -1,6 +1,6 @@
 use esp_idf_svc::hal::peripherals::Peripherals;
 use log::*;
-use omnibench::stepper::Stepper;
+use omnibench::stepper::{RampConfig, Stepper};
 use std::time::Duration;
 
 pub fn main() -> anyhow::Result<()> {
@@ -10,7 +10,7 @@ pub fn main() -> anyhow::Result<()> {
     let peripherals = Peripherals::take()?;
     let (stepper_dir, stepper_en, stepper_pul) = omnibench::board_stepper_pins!(peripherals);
 
-    let mut stepper = match Stepper::try_new(stepper_dir, stepper_en, stepper_pul) {
+    let mut stepper = match Stepper::try_new(stepper_dir, stepper_en, stepper_pul, RampConfig::default()) {
         Ok(s) => s,
         Err(e) => {
             error!("Stepper init failed: {e:?}");

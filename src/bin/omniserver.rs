@@ -19,7 +19,7 @@ use omnibench::{
     APP_ID,
     protocol::{ClientEvent, RelayState},
     server::OmnibenchServer,
-    stepper::Stepper,
+    stepper::{RampConfig, Stepper},
 };
 #[cfg(feature = "relay")]
 use port_expander::{Pcf8574a, write_multiple};
@@ -88,28 +88,34 @@ fn main() -> anyhow::Result<()> {
     info!("Gatts BTP app registered");
 
     let relay_state = Arc::new(Mutex::new(RelayState::default()));
-    let joy_state = Arc::new(Mutex::new(0i8));
+    // Mailbox: BLE callback writes Some(value), stepper thread takes it.
+    let joy_mailbox: Arc<Mutex<Option<i8>>> = Arc::new(Mutex::new(None));
 
     // Stepper thread: construct and drive entirely within the thread to avoid
     // Send issues with rmt_encoder_t.
-    let joy_state_stepper = joy_state.clone();
+    let joy_mailbox_stepper = joy_mailbox.clone();
     std::thread::spawn(move || {
-        let mut stepper = match Stepper::try_new(stepper_dir, stepper_en, stepper_pul) {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Stepper init failed: {e:?}");
-                panic!("Stepper init failed: {e:?}");
-            }
-        };
-        info!("Stepper initialized");
-        let mut last_joy = 0i8;
-        loop {
-            let joy = *joy_state_stepper.lock().unwrap();
-            if joy != last_joy {
-                if let Err(e) = stepper.drive(joy) {
-                    warn!("Stepper error: {e:?}");
+        let mut stepper =
+            match Stepper::try_new(stepper_dir, stepper_en, stepper_pul, RampConfig::default())
+                .and_then(|mut s| {
+                    s.disable()?;
+                    Ok(s)
+                }) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Stepper init failed: {e:?}");
+                    panic!("Stepper init failed: {e:?}");
                 }
-                last_joy = joy;
+            };
+        // stepper.disable()?;
+        info!("Stepper initialized");
+        let mut last_tick = std::time::Instant::now();
+        loop {
+            let dt = last_tick.elapsed();
+            last_tick = std::time::Instant::now();
+            let new_target = joy_mailbox_stepper.lock().unwrap().take();
+            if let Err(e) = stepper.tick(new_target, dt) {
+                warn!("Stepper error: {e:?}");
             }
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -118,7 +124,7 @@ fn main() -> anyhow::Result<()> {
     // Toggle the appropriate relay when a ButtonEvent arrives from the client,
     // then broadcast the updated state to all subscribers.
     let relay_state_recv = relay_state.clone();
-    let joy_state_recv = joy_state.clone();
+    let joy_mailbox_recv = joy_mailbox.clone();
     let server_recv = server.clone();
     server.set_recv_callback(move |bytes| match ClientEvent::from_bytes(bytes) {
         Some(ClientEvent::Button(event)) => {
@@ -131,8 +137,7 @@ fn main() -> anyhow::Result<()> {
             server_recv.check_esp_status(server_recv.notify(&new_state.to_bytes()));
         }
         Some(ClientEvent::Joystick(event)) => {
-            *joy_state_recv.lock().unwrap() = event.value;
-            // info!("Joystick: {}", event.value);
+            *joy_mailbox_recv.lock().unwrap() = Some(event.value);
         }
         None => {
             warn!("Unknown recv payload: {bytes:?}");
