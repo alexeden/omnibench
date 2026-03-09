@@ -4,7 +4,6 @@ use esp_idf_svc::hal::{
     gpio::{Level, Output, OutputPin as EspOutputPin, PinDriver},
     sys::EspError,
 };
-use log::*;
 use std::time::Instant;
 
 #[derive(Clone, Copy, Debug)]
@@ -25,7 +24,7 @@ impl From<StepperDirection> for Level {
 // At 1 MHz RMT resolution, the 15-bit duration field tops out at 32767 ticks
 // (32.77 ms per half-period), giving a minimum frequency of ~15 Hz.
 const MIN_SPEED_HZ: f32 = 20.0;
-const MAX_SPEED_HZ: f32 = 20_000.0;
+const MAX_SPEED_HZ: f32 = 25_000.0;
 
 /// Acceleration / deceleration ramp configuration.
 #[derive(Clone, Debug)]
@@ -42,8 +41,8 @@ pub struct RampConfig {
 impl Default for RampConfig {
     fn default() -> Self {
         Self {
-            accel_hz_per_s: MAX_SPEED_HZ / 2.,
-            decel_hz_per_s: MAX_SPEED_HZ,
+            accel_hz_per_s: 18_000.,
+            decel_hz_per_s: MAX_SPEED_HZ * 2.,
             input_timeout: Duration::from_millis(500),
         }
     }
@@ -98,25 +97,6 @@ impl<'d> Stepper<'d> {
 
     pub fn set_dir(&mut self, dir: StepperDirection) -> Result<(), EspError> {
         self.dir.set_level(dir.into())?;
-        Ok(())
-    }
-
-    /// Direct drive bypassing the ramp.  Kept for use in tests.
-    pub fn drive(&mut self, value: i8) -> Result<(), EspError> {
-        if value == 0 {
-            self.pulse.stop()?;
-            self.disable()?;
-        } else {
-            info!("Driving stepper: {value}");
-            let dir = if value > 0 {
-                StepperDirection::Forward
-            } else {
-                StepperDirection::Reverse
-            };
-            self.set_dir(dir)?;
-            self.pulse.set_freq(map_joy_to_hz(value.unsigned_abs()))?;
-            self.enable()?;
-        }
         Ok(())
     }
 
@@ -181,7 +161,7 @@ impl<'d> Stepper<'d> {
             self.set_dir(dir)?;
             self.pulse.set_freq(self.current_hz.abs() as u32)?;
             self.enable()?;
-            info!("Stepper ramp: {:.0} Hz", self.current_hz);
+            // info!("Stepper ramp: {:.0} Hz", self.current_hz);
         }
         Ok(())
     }

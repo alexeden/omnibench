@@ -12,7 +12,7 @@ embuild = "0.33"
 
 [features]
 relay = []
-default = []
+default = ["relay"]
 
 [dependencies]
 adafruit-seesaw = { version = "0.13", features = ["nightly"] }

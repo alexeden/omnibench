@@ -36,32 +36,27 @@ fn main() -> anyhow::Result<()> {
 
     let peripherals = Peripherals::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
-    let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
-
     // I2C
-    #[cfg(feature = "relay")]
-    let i2c = {
-        let peripherals = Peripherals::take()?;
-        let (i2c_power, sda, scl) = omnibench::board_i2c_pins!(peripherals);
-        let mut i2c_power = PinDriver::output(i2c_power)?;
-        i2c_power.set_low()?;
-        let config = I2cConfig::new().baudrate(400u32.kHz().into());
-        let i2c = RefCell::new(I2cDriver::<'static>::new(
-            peripherals.i2c0,
-            sda,
-            scl,
-            &config,
-        )?);
-        i2c_power.set_high()?;
-        std::thread::sleep(Duration::from_millis(50));
-        i2c
-    };
-    #[cfg(feature = "relay")]
+    info!("Initializing I2C");
+    let (i2c_power, sda, scl) = omnibench::board_i2c_pins!(peripherals);
+    let mut i2c_power = PinDriver::output(i2c_power)?;
+    i2c_power.set_low()?;
+    let config = I2cConfig::new().baudrate(400u32.kHz().into());
+    let i2c = RefCell::new(I2cDriver::<'static>::new(
+        peripherals.i2c0,
+        sda,
+        scl,
+        &config,
+    )?);
+    i2c_power.set_high()?;
+    std::thread::sleep(Duration::from_millis(50));
+    info!("I2C initialized");
     let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
-
+    info!("Relays initialized");
     let (stepper_dir, stepper_en, stepper_pul) = omnibench::board_stepper_pins!(peripherals);
-
+    info!("Stepper pins initialized");
     // BLE
+    let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
     let server = OmnibenchServer::new(
         Arc::new(EspBleGap::new(bt.clone())?),
         Arc::new(EspGatts::new(bt.clone())?),
@@ -165,23 +160,20 @@ fn main() -> anyhow::Result<()> {
         let connected = server.has_connections();
 
         if Some(current_state) != last_relay_state || Some(connected) != last_connected {
-            #[cfg(feature = "relay")]
-            {
-                let mut pins = relays.split();
-                write_multiple(
-                    [
-                        &mut pins.p0,
-                        &mut pins.p1,
-                        &mut pins.p2,
-                        &mut pins.p3,
-                        &mut pins.p4,
-                        &mut pins.p5,
-                        &mut pins.p6,
-                        &mut pins.p7,
-                    ],
-                    std::array::from_fn(|i| current_state.is_on(i as u8)),
-                )?;
-            }
+            let mut pins = relays.split();
+            write_multiple(
+                [
+                    &mut pins.p0,
+                    &mut pins.p1,
+                    &mut pins.p2,
+                    &mut pins.p3,
+                    &mut pins.p4,
+                    &mut pins.p5,
+                    &mut pins.p6,
+                    &mut pins.p7,
+                ],
+                std::array::from_fn(|i| !current_state.is_on(i as u8)),
+            )?;
 
             last_relay_state = Some(current_state);
             last_connected = Some(connected);
