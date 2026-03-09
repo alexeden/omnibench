@@ -6,8 +6,6 @@ use esp_idf_svc::hal::{
     units::FromValueType,
 };
 use log::*;
-
-#[cfg(feature = "relay")]
 use port_expander::{Pcf8574a, write_multiple};
 use std::{cell::RefCell, time::Duration};
 
@@ -30,7 +28,6 @@ fn main() -> anyhow::Result<()> {
     )?);
     i2c_power.set_high()?;
     std::thread::sleep(Duration::from_millis(50));
-    #[cfg(feature = "relay")]
     let mut relays = Pcf8574a::new(RefCellDevice::new(&i2c), true, true, true);
 
     info!("Starting main loop...");

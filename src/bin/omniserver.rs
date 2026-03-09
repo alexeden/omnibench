@@ -1,17 +1,15 @@
-#[cfg(feature = "relay")]
 use embedded_hal_bus::i2c::RefCellDevice;
-#[cfg(feature = "relay")]
-use esp_idf_svc::hal::{
-    gpio::PinDriver,
-    i2c::{I2cConfig, I2cDriver},
-    units::FromValueType,
-};
 use esp_idf_svc::{
     bt::{
         BtDriver,
         ble::{gap::EspBleGap, gatt::server::EspGatts},
     },
-    hal::peripherals::Peripherals,
+    hal::{
+        gpio::PinDriver,
+        i2c::{I2cConfig, I2cDriver},
+        peripherals::Peripherals,
+        units::FromValueType,
+    },
     nvs::EspDefaultNvsPartition,
 };
 use log::*;
@@ -21,11 +19,9 @@ use omnibench::{
     server::OmnibenchServer,
     stepper::{RampConfig, Stepper},
 };
-#[cfg(feature = "relay")]
 use port_expander::{Pcf8574a, write_multiple};
-#[cfg(feature = "relay")]
-use std::cell::RefCell;
 use std::{
+    cell::RefCell,
     sync::{Arc, Mutex},
     time::Duration,
 };
