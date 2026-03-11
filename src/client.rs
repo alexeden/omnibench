@@ -275,7 +275,7 @@ impl OmnibenchClient {
                         &NOTIFY_CHARACTERISTIC_UUID,
                         &mut chars,
                     ) {
-                        Ok(char_count) if char_count > 0 => {
+                        Ok(_) => {
                             if let Some(ind_char_elem) = chars.first() {
                                 if ind_char_elem.properties().contains(Property::Notify) {
                                     if let Some(remote_addr) = state.remote_addr {
@@ -290,9 +290,6 @@ impl OmnibenchClient {
                                     error!("Notify characteristic does not have property Notify");
                                 }
                             }
-                        }
-                        Ok(_) => {
-                            error!("No notify characteristic found");
                         }
                         Err(status) => {
                             error!("Get notify characteristic error {status:?}");
