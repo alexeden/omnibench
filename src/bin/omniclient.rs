@@ -21,7 +21,7 @@ use esp_idf_svc::{
             },
         },
         delay::Delay,
-        gpio::PinDriver,
+        gpio::{Pin, PinDriver},
         i2c::{I2cConfig, I2cDriver},
         peripherals::Peripherals,
         units::FromValueType,
@@ -31,7 +31,7 @@ use esp_idf_svc::{
 };
 use log::*;
 use omnibench::{
-    APP_ID,
+    APP_ID, SLEEP_TIMEOUT,
     board::map_mv_to_i8,
     client::{ConnectionStatus, OmnibenchClient},
     colors::{BLUE, DIM_WHITE, OFF, ORANGE, RED, WHITE, YELLOW},
@@ -233,13 +233,20 @@ pub fn main() -> anyhow::Result<()> {
             ConnectionStatus::Scanning => {}
         }
         last_keys = keys;
+
+        if let Some(last_activity) = client.last_activity()
+            && last_activity.elapsed() > SLEEP_TIMEOUT
+        {
+            info!("No activity for 10 seconds — restarting scan");
+            sleepy_time(sw_pin.pin() as i32);
+        }
     }
 }
 
-fn sleepy_time(joy_sw_pin: u32) {
+fn sleepy_time(joy_sw_pin: i32) -> ! {
     unsafe {
         // EXT0: single GPIO wakeup. Wake on LOW (joystick click pulls low)
-        sys::esp_sleep_enable_ext0_wakeup(joy_sw_pin as i32, 0);
+        sys::esp_sleep_enable_ext0_wakeup(joy_sw_pin, 0);
         sys::esp_deep_sleep_start(); // does not return
     }
 }
