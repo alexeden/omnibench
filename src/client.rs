@@ -22,7 +22,10 @@ use esp_idf_svc::{
     sys::{ESP_FAIL, EspError},
 };
 use log::*;
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum ConnectionStatus {
@@ -51,7 +54,6 @@ struct State {
     gattc_if: Option<GattInterface>,
     ind_char_handle: Option<Handle>,
     ind_descr_handle: Option<Handle>,
-    on_notify: Option<NotifyHandler>,
     remote_addr: Option<BdAddr>,
     service_start_end_handle: Option<(Handle, Handle)>,
     status: ConnectionStatus,
@@ -62,27 +64,22 @@ struct State {
 pub struct OmnibenchClient {
     pub gap: ExEspBleGap,
     pub gattc: ExEspGattc,
+    notify_callback: NotifyHandler,
     state: Arc<Mutex<State>>,
 }
 
 impl OmnibenchClient {
-    pub fn new(gap: ExEspBleGap, gattc: ExEspGattc) -> Self {
+    pub fn new(
+        gap: ExEspBleGap,
+        gattc: ExEspGattc,
+        notify_callback: impl Fn(&[u8]) + Send + Sync + 'static,
+    ) -> Self {
         Self {
             gap,
             gattc,
+            notify_callback: Arc::new(notify_callback),
             state: Arc::new(Mutex::new(Default::default())),
         }
-    }
-
-    /// Returns the current connection status, suitable for driving UI feedback.
-    pub fn status(&self) -> ConnectionStatus {
-        self.state.lock().unwrap().status
-    }
-
-    /// Registers a callback invoked with the raw payload whenever the server
-    /// sends an indication.  Parse the bytes into your domain type here.
-    pub fn set_notify_callback(&self, handler: impl Fn(&[u8]) + Send + Sync + 'static) {
-        self.state.lock().unwrap().on_notify = Some(Arc::new(handler));
     }
 
     /// Connect to the bt_gatt_server.
@@ -100,6 +97,11 @@ impl OmnibenchClient {
             self.gap.set_scan_params(&scan_params)?;
         }
         Ok(())
+    }
+
+    /// Returns the current connection status, suitable for driving UI feedback.
+    pub fn status(&self) -> ConnectionStatus {
+        self.state.lock().unwrap().status
     }
 
     // Write some data to the write characteristic.
@@ -395,7 +397,7 @@ impl OmnibenchClient {
                 let handler = {
                     let state = self.state.lock().unwrap();
                     if Some(handle) == state.ind_char_handle {
-                        state.on_notify.clone()
+                        Some(self.notify_callback.clone())
                     } else {
                         None
                     }

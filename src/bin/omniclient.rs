@@ -114,13 +114,18 @@ pub fn main() -> anyhow::Result<()> {
 
     let nvs = EspDefaultNvsPartition::take()?;
     let bt = Arc::new(BtDriver::new(peripherals.modem, Some(nvs.clone()))?);
+    let relay_state = Arc::new(Mutex::new(RelayState::default()));
+    let relay_state_cb = relay_state.clone();
     let client = OmnibenchClient::new(
         Arc::new(EspBleGap::new(bt.clone())?),
         Arc::new(EspGattc::new(bt.clone())?),
+        move |bytes| {
+            if let Some(rs) = RelayState::from_bytes(bytes) {
+                *relay_state_cb.lock().unwrap() = rs;
+            }
+        },
     );
     info!("BLE Gap and Gattc initialized");
-
-    let relay_state = Arc::new(Mutex::new(RelayState::default()));
 
     let gap_client = client.clone();
     client.gap.subscribe(move |event| {
@@ -135,13 +140,6 @@ pub fn main() -> anyhow::Result<()> {
             warn!("Gattc event error: {e:?}");
         }
     })?;
-
-    let relay_state_cb = relay_state.clone();
-    client.set_notify_callback(move |bytes| {
-        if let Some(rs) = RelayState::from_bytes(bytes) {
-            *relay_state_cb.lock().unwrap() = rs;
-        }
-    });
 
     info!("Subscriptions initialized; registering app and starting scan");
     client.gattc.register_app(APP_ID)?;
