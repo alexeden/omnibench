@@ -9,14 +9,14 @@ use esp_idf_svc::hal::{
     peripherals::Peripherals,
 };
 use log::info;
-use omnibench::joystick::map_mv_to_i8;
+use omnibench::board::map_mv_to_i8;
 use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
     let peripherals = Peripherals::take()?;
-    let (adc, joy_gpio) = omnibench::board_joy_adc!(peripherals);
+    let (adc, joy_gpio, _sw_pin) = omnibench::board_joy_adc!(peripherals);
     let mut joy_pin = AdcChannelDriver::new(&adc, joy_gpio, &{
         #[cfg(not(esp32s3))]
         let cfg = AdcChannelConfig {

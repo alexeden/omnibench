@@ -27,12 +27,14 @@ use esp_idf_svc::{
         units::FromValueType,
     },
     nvs::EspDefaultNvsPartition,
+    sys,
 };
 use log::*;
 use omnibench::{
     APP_ID,
+    board::map_mv_to_i8,
     client::{ConnectionStatus, OmnibenchClient},
-    joystick::map_mv_to_i8,
+    colors::{BLUE, DIM_WHITE, OFF, ORANGE, RED, WHITE, YELLOW},
     protocol::{ButtonEvent, ClientEvent, JoystickEvent, RelayState},
 };
 use std::{
@@ -41,35 +43,29 @@ use std::{
     time::Duration,
 };
 
-const RED: NeoKey1x4Color = NeoKey1x4Color { r: 255, g: 0, b: 0 };
-const BLUE: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 255 };
-const WHITE: NeoKey1x4Color = NeoKey1x4Color {
-    r: 255,
-    g: 255,
-    b: 255,
-};
-const DIM_WHITE: NeoKey1x4Color = NeoKey1x4Color { r: 3, g: 3, b: 3 };
-const ORANGE: NeoKey1x4Color = NeoKey1x4Color {
-    r: 255,
-    g: 128,
-    b: 0,
-};
-const YELLOW: NeoKey1x4Color = NeoKey1x4Color {
-    r: 255,
-    g: 255,
-    b: 0,
-};
-const OFF: NeoKey1x4Color = NeoKey1x4Color { r: 0, g: 0, b: 0 };
-
 type NeoKeys<'bus> = NeoKey1x4<SeesawDriver<RefCellDevice<'bus, I2cDriver<'static>>, Delay>>;
 
 pub fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
+    // Why'd we wake up?
+    let wakeup_cause = unsafe { sys::esp_sleep_get_wakeup_cause() };
+    match wakeup_cause {
+        sys::esp_sleep_source_t_ESP_SLEEP_WAKEUP_EXT0 => {
+            info!("Woke from joystick click");
+        }
+        sys::esp_sleep_source_t_ESP_SLEEP_WAKEUP_TIMER => {
+            info!("Woke from timer");
+        }
+        _ => {
+            info!("Fresh boot");
+        }
+    };
+
     let peripherals = Peripherals::take()?;
 
-    let (adc, joy_pin) = omnibench::board_joy_adc!(peripherals);
+    let (adc, joy_pin, sw_pin) = omnibench::board_joy_adc!(peripherals);
     let mut joy_adc = AdcChannelDriver::new(
         &adc,
         joy_pin,
@@ -166,9 +162,8 @@ pub fn main() -> anyhow::Result<()> {
         if status == ConnectionStatus::Connected {
             let mut joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
             if joy != 0 {
-                info!("Joystick nonzero: {joy}");
-                set_uniform(&mut neokeys1, if joy < 0 { YELLOW } else { OFF })?;
-                set_uniform(&mut neokeys2, if joy < 0 { OFF } else { YELLOW })?;
+                set_uniform(&mut neokeys1, if joy < 0 { OFF } else { BLUE })?;
+                set_uniform(&mut neokeys2, if joy < 0 { BLUE } else { OFF })?;
                 loop {
                     joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
                     info!("Joystick: {joy}");
@@ -242,13 +237,11 @@ pub fn main() -> anyhow::Result<()> {
     }
 }
 
-fn button_color(pressed: bool, relay_on: bool) -> NeoKey1x4Color {
-    if pressed {
-        BLUE
-    } else if relay_on {
-        WHITE
-    } else {
-        DIM_WHITE
+fn sleepy_time(joy_sw_pin: u32) {
+    unsafe {
+        // EXT0: single GPIO wakeup. Wake on LOW (joystick click pulls low)
+        sys::esp_sleep_enable_ext0_wakeup(joy_sw_pin as i32, 0);
+        sys::esp_deep_sleep_start(); // does not return
     }
 }
 
@@ -265,12 +258,18 @@ fn update_strip(
     relay_state: RelayState,
     relay_offset: u8,
 ) -> anyhow::Result<()> {
-    let colors = std::array::from_fn::<_, 4, _>(|i| {
-        let i = i as u8;
-        button_color((nibble >> i) & 1 == 0, relay_state.is_on(relay_offset + i))
-    });
     strip
-        .set_neopixel_colors(&colors)
+        .set_neopixel_colors(&std::array::from_fn::<_, 4, _>(|i| {
+            let pressed = (nibble >> i) & 1 == 0;
+            let on = relay_state.is_on(relay_offset + i as u8);
+            if pressed {
+                YELLOW
+            } else if on {
+                WHITE
+            } else {
+                DIM_WHITE
+            }
+        }))
         .and_then(|_| strip.sync_neopixel())
         .map_err(|e| anyhow::anyhow!("Neopixel error: {e:?}"))
 }
