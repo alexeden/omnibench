@@ -221,6 +221,7 @@ pub fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            // Rescan if any button is pressed and we're not connected
             ConnectionStatus::ScanFailed
             | ConnectionStatus::Disconnected
             | ConnectionStatus::Error => {
