@@ -54,6 +54,7 @@ struct State {
     gattc_if: Option<GattInterface>,
     ind_char_handle: Option<Handle>,
     ind_descr_handle: Option<Handle>,
+    last_activity: Option<Instant>,
     remote_addr: Option<BdAddr>,
     service_start_end_handle: Option<(Handle, Handle)>,
     status: ConnectionStatus,
@@ -104,9 +105,20 @@ impl OmnibenchClient {
         self.state.lock().unwrap().status
     }
 
+    /// Returns the `Instant` of the last BT activity (sent or received) while
+    /// connected, or `None` if not currently connected / no activity yet.
+    pub fn last_activity(&self) -> Option<Instant> {
+        let state = self.state.lock().unwrap();
+        if state.status == ConnectionStatus::Connected {
+            state.last_activity
+        } else {
+            None
+        }
+    }
+
     // Write some data to the write characteristic.
     pub fn write_characteristic(&self, char_value: &[u8]) -> Result<(), EspError> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
 
         let Some(gattc_if) = state.gattc_if else {
             return Ok(());
@@ -124,6 +136,7 @@ impl OmnibenchClient {
                 GattWriteType::RequireResponse,
                 GattAuthReq::None,
             )?;
+            state.last_activity = Some(Instant::now());
         }
 
         Ok(())
@@ -395,8 +408,9 @@ impl OmnibenchClient {
                 // Clone the Arc while holding the lock (cheap), then release
                 // before invoking so the handler can safely call back into the client.
                 let handler = {
-                    let state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().unwrap();
                     if Some(handle) == state.ind_char_handle {
+                        state.last_activity = Some(Instant::now());
                         Some(self.notify_callback.clone())
                     } else {
                         None
@@ -414,6 +428,7 @@ impl OmnibenchClient {
                 state.service_start_end_handle = None;
                 state.ind_char_handle = None;
                 state.ind_descr_handle = None;
+                state.last_activity = None;
                 state.write_char_handle = None;
                 state.status = ConnectionStatus::Disconnected;
                 info!("GattcEvent::Disconnected: remote {addr}, reason {reason:?}");
