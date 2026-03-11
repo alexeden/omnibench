@@ -51,11 +51,11 @@ struct State {
     gattc_if: Option<GattInterface>,
     ind_char_handle: Option<Handle>,
     ind_descr_handle: Option<Handle>,
+    on_notify: Option<NotifyHandler>,
     remote_addr: Option<BdAddr>,
     service_start_end_handle: Option<(Handle, Handle)>,
-    write_char_handle: Option<Handle>,
     status: ConnectionStatus,
-    on_notify: Option<NotifyHandler>,
+    write_char_handle: Option<Handle>,
 }
 
 #[derive(Clone)]
@@ -99,58 +99,6 @@ impl OmnibenchClient {
             };
             self.gap.set_scan_params(&scan_params)?;
         }
-        Ok(())
-    }
-
-    /// Disconnect from the bt_gatt_server.
-    ///
-    /// This does a physical disconnect, a `gattc.close` can also be used to
-    /// close a virtual connection which will also disconnect if there are
-    /// no more virtual connections.
-    pub fn disconnect(&self) -> Result<(), EspError> {
-        let state = self.state.lock().unwrap();
-
-        if let Some(remote_addr) = state.remote_addr {
-            self.gap.disconnect(remote_addr)?;
-        }
-
-        Ok(())
-    }
-
-    /// Subscribe or unsubsrcibe to the notifications.
-    ///
-    /// After registering for notify the CCCD descriptor is written to
-    /// enable/disbale the notification.
-    pub fn request_indicate(&self, indicate: bool) -> Result<(), EspError> {
-        let state = self.state.lock().unwrap();
-
-        let Some(gattc_if) = state.gattc_if else {
-            return Ok(());
-        };
-        let Some(conn_id) = state.conn_id else {
-            return Ok(());
-        };
-
-        if let Some(ind_descr_handle) = state.ind_descr_handle {
-            let value = if indicate {
-                info!("Subscribe notify");
-                1_u16
-            } else {
-                info!("Unsubscribe notify");
-                0_u16
-            }
-            .to_le_bytes();
-
-            self.gattc.write_descriptor(
-                gattc_if,
-                conn_id,
-                ind_descr_handle,
-                &value,
-                GattWriteType::RequireResponse,
-                GattAuthReq::None,
-            )?;
-        }
-
         Ok(())
     }
 
@@ -218,9 +166,7 @@ impl OmnibenchClient {
                 // info!("BleGapEvent::ScanResult(GapSearchEvent::InquiryResult): {n:?}");
                 if let Some(name) = name.filter(|n| *n == SERVER_NAME) {
                     info!("!!! Device found: {name:?}");
-
                     let mut state = self.state.lock().unwrap();
-
                     if !state.connected {
                         state.connected = true;
                         info!("!!! Connect to remote {bda}");
@@ -233,16 +179,6 @@ impl OmnibenchClient {
             BleGapEvent::ScanStopped(status) => {
                 info!("BleGapEvent::ScanStopped: {status:?}");
                 self.check_bt_status(status)?;
-            }
-            BleGapEvent::PacketLengthConfigured {
-                status,
-                rx_len,
-                tx_len,
-            } => {
-                info!(
-                    "BleGapEvent::PacketLengthConfigured: status {status:?}, rx {rx_len}, tx \
-                     {tx_len}"
-                );
             }
             evt => {
                 info!("BleGapEvent: {evt:?}");
