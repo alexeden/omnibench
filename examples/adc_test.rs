@@ -6,6 +6,7 @@ use esp_idf_svc::hal::{
             config::{AdcChannelConfig, Calibration},
         },
     },
+    gpio::{PinDriver, Pull},
     peripherals::Peripherals,
 };
 use log::info;
@@ -16,7 +17,8 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
     let peripherals = Peripherals::take()?;
-    let (adc, joy_gpio, _sw_pin) = omnibench::board_joy_adc!(peripherals);
+    let (adc, joy_gpio, sw_pin) = omnibench::board_joy_adc!(peripherals);
+    let sw = PinDriver::input(sw_pin, Pull::Down)?;
     let mut joy_pin = AdcChannelDriver::new(&adc, joy_gpio, &{
         #[cfg(not(esp32s3))]
         let cfg = AdcChannelConfig {
@@ -37,7 +39,7 @@ fn main() -> anyhow::Result<()> {
         let raw = adc.read_raw(&mut joy_pin)?;
         let mv = adc.raw_to_mv(&joy_pin, raw)?;
         let i8 = map_mv_to_i8(mv);
-        info!("mv: {mv}, i8: {i8}, raw: {raw}");
+        info!("mv: {mv}, i8: {i8}, raw: {raw}, sw: {:?}", sw.get_level());
         std::thread::sleep(Duration::from_millis(200));
     }
 }
