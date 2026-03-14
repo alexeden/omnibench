@@ -7,7 +7,7 @@ pub mod protocol;
 pub mod server;
 pub mod stepper;
 
-pub const SLEEP_TIMEOUT: Duration = Duration::from_secs(5);
+pub const SLEEP_TIMEOUT: Duration = Duration::from_secs(40);
 
 pub const APP_ID: u16 = 0;
 
