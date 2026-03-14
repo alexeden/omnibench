@@ -80,8 +80,8 @@ macro_rules! board_stepper_pins {
     }};
 }
 
-const JOY_ZERO_CLIP: u16 = 50;
-const JOY_ZERO: u16 = 1616;
+const JOY_ZERO_CLIP: u16 = 60;
+const JOY_ZERO: u16 = 1635;
 const JOY_MIN: u16 = 0;
 const JOY_MAX: u16 = 3061;
 
