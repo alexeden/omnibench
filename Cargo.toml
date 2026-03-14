@@ -14,7 +14,7 @@ embuild = "0.33"
 default = []
 
 [dependencies]
-adafruit-seesaw = { version = "0.13", features = ["nightly"] }
+adafruit-seesaw = { version = "0.14", features = ["nightly"] }
 anyhow = "1"
 enumset = "1"
 embedded-hal-bus = "0.3"

@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "adafruit-seesaw"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa02797377e17018198a5fc8aecd25aed006a95416ac5ffc46cc14beeb5b2c72"
+checksum = "0d3d70191dec949e5d6dfaffc680feac7ed33dcb01e5d3810ae31e46c4c5d2e6"
 dependencies = [
  "embedded-hal 1.0.0",
  "rgb",
