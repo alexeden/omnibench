@@ -166,7 +166,7 @@ pub fn main() -> anyhow::Result<()> {
                     joy = map_mv_to_i8(adc.read(&mut joy_adc)?);
                     info!("Joystick: {joy}");
                     client.write_characteristic(
-                        &ClientEvent::Joystick(JoystickEvent { value: joy }).to_bytes(),
+                        &ClientEvent::Joystick(JoystickEvent { value: -joy }).to_bytes(),
                     )?;
                     if joy == 0 {
                         break;
