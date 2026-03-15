@@ -4,9 +4,9 @@ A Rust-based embedded control system for an ESP32-powered test bench with Blueto
 
 ## Hardware
 
-| Remote | Server |
-|--------|--------|
-| ![Remote](docs/remote.jpg) | ![Server](docs/server.jpg) |
+| Remote | Remote (internal) | Server |
+|--------|-------------------|--------|
+| ![Remote](docs/remote.jpg) | ![Remote internal](docs/remote-internal.jpg) | ![Server](docs/server.jpg) |
 
 ## Features
 
