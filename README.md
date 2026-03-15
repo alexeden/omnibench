@@ -2,6 +2,8 @@
 
 A Rust-based embedded control system for an ESP32-powered test bench with Bluetooth Low Energy (BLE) remote control. The project is split into two binaries: a **server** that runs on the test bench and controls hardware, and a **client** that runs on a handheld remote.
 
+<video src="https://github.com/user-attachments/assets/5045a76f-3177-487a-91c3-956b5128c064" controls width="100%"></video>
+
 ## Hardware
 
 | Remote | Remote (internal) | Server |
