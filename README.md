@@ -13,10 +13,10 @@ A Rust-based embedded control system for an ESP32-powered test bench with Blueto
 ## Features
 
 - **BLE Remote Control** — Custom GATT protocol connects server and client over Bluetooth LE. The client sends joystick and button events; the server pushes relay state back.
-- **Relay Control** — Controls a 4-relay module over I2C (PCF8574a), with state synchronized to the remote in real time.
+- **Relay Control** — Controls an 8-relay module over I2C (PCF8574a), with state synchronized to the remote in real time.
 - **Stepper Motor** — Programmable stepper motor driver with smooth acceleration and deceleration ramping, driven via the ESP32 RMT peripheral. Includes a "sticky pedal" fail-safe: if the remote disconnects or stops sending input, the server automatically decelerates the stepper to zero after 500 ms, preventing a runaway motor.
 - **Joystick Input** — Analog joystick on the remote with ADC smoothing, mapped to a signed byte (-127 to 127) for stepper speed control.
-- **NeoKey Button Panel** — Adafruit NeoKey 1x4 RGB button matrix on the remote provides tactile input and color-coded connection status (white = connected, red = disconnected, blue = scanning).
+- **NeoKey Button Panel** — Two Adafruit NeoKey 1x4 RGB button matrixes on the remote provides tactile input and color-coded connection status (white = connected, red = disconnected, blue = scanning).
 - **Low-Power Remote** — Deep sleep with wake-on-interrupt keeps the handheld client power-efficient when idle.
 - **Multi-Board Support** — Compile-time pin mappings and ADC calibration for both ESP32 and ESP32-S3 variants.
 
