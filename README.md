@@ -4,6 +4,11 @@ A Rust-based embedded control system for an ESP32-powered test bench with Blueto
 
 <video src="https://github.com/user-attachments/assets/5045a76f-3177-487a-91c3-956b5128c064" controls width="100%"></video>
 
+## 3D Printable Parts
+
+- [Case](docs/omnibench-case.stl)
+- [Cover](docs/omnibench-cover.stl)
+
 ## Hardware
 
 | Remote | Remote (internal) | Server |
